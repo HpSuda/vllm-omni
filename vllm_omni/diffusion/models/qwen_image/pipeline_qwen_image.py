@@ -274,6 +274,18 @@ class QwenImagePipeline(nn.Module, QwenImageCFGParallelMixin, DiffusionPipelineP
         self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
+        # Qwen2.5-VL includes a vision tower that text-to-image serving does not use.
+        # Drop it before moving the encoder to device so it never consumes accelerator memory.
+        visual_owner = None
+        if hasattr(self.text_encoder, "model") and hasattr(self.text_encoder.model, "visual"):
+            visual_owner = self.text_encoder.model
+        elif hasattr(self.text_encoder, "visual"):
+            visual_owner = self.text_encoder
+        if visual_owner is not None:
+            del visual_owner.visual
+        else:
+            logger.warning("Qwen-Image: vision tower not found on text encoder; skipping drop")
+        self.text_encoder = self.text_encoder.to(self.device)
         self.vae = DistributedAutoencoderKLQwenImage.from_pretrained(
             model, subfolder="vae", local_files_only=local_files_only
         ).to(self.device)
@@ -665,6 +677,14 @@ class QwenImagePipeline(nn.Module, QwenImageCFGParallelMixin, DiffusionPipelineP
         negative_txt_seq_lens = (
             negative_prompt_embeds_mask.sum(dim=1).tolist() if negative_prompt_embeds_mask is not None else None
         )
+
+        # For single-request serving, padding has already been removed by
+        # _extract_masked_hidden(), so the prompt mask is all-ones. Dropping it
+        # avoids per-layer SDPA mask construction and device-wide all() checks.
+        if prompt_embeds_mask is not None and prompt_embeds_mask.shape[0] == 1:
+            prompt_embeds_mask = None
+        if negative_prompt_embeds_mask is not None and negative_prompt_embeds_mask.shape[0] == 1:
+            negative_prompt_embeds_mask = None
 
         return {
             "prompt_embeds": prompt_embeds,

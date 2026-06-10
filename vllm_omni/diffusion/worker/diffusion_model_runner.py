@@ -310,48 +310,97 @@ class DiffusionModelRunner:
         """Return whether current pipeline supports step execution."""
         return self.pipeline is not None and supports_step_execution(self.pipeline)
 
-    def _update_states(self, scheduler_output: DiffusionSchedulerOutput) -> tuple[DiffusionRequestState, bool]:
+    @staticmethod
+    def _batch_state_key(req_ids: list[str]) -> str:
+        return req_ids[0] if len(req_ids) == 1 else "\x1f".join(req_ids)
+
+    def _update_states(self, scheduler_output: DiffusionSchedulerOutput) -> tuple[DiffusionRequestState, bool, list[str]]:
         """Step-before update: cleanup finished requests and get/create one running state."""
         for req_id in scheduler_output.finished_req_ids:
             self.state_cache.pop(req_id, None)
 
-        if scheduler_output.num_scheduled_reqs != 1:
+        scheduled_req_ids = scheduler_output.scheduled_req_ids
+        if len(scheduled_req_ids) not in (1, 2):
             raise ValueError(
-                "Step mode currently supports batch_size=1, "
-                f"but got {scheduler_output.num_scheduled_reqs} scheduled requests."
+                "Step mode currently supports batch_size<=2, "
+                f"but got {len(scheduled_req_ids)} scheduled requests."
             )
+        state_key = self._batch_state_key(scheduled_req_ids)
 
         if scheduler_output.scheduled_new_reqs:
-            new_req_data = scheduler_output.scheduled_new_reqs[0]
-            req_id = new_req_data.sched_req_id
-            req = new_req_data.req
-            if req_id in self.state_cache:
-                raise ValueError(f"Received duplicate new-request payload for cached request {req_id}.")
-        else:
-            req_id = scheduler_output.scheduled_cached_reqs.sched_req_ids[0]
-            state = self.state_cache.get(req_id)
-            if state is None:
-                raise ValueError(f"Missing cached state for request {req_id}.")
-            return state, False
-
-        request_ids = req.request_ids or [req_id]
-        if len(request_ids) != len(req.prompts):
-            raise ValueError(
-                f"request_ids length ({len(request_ids)}) does not match prompts length ({len(req.prompts)})"
+            if scheduler_output.scheduled_cached_reqs.sched_req_ids:
+                raise ValueError("Cannot mix new and cached requests in one stepwise batch.")
+            if len(scheduler_output.scheduled_new_reqs) != len(scheduled_req_ids):
+                raise ValueError("scheduled_new_reqs does not match scheduled_req_ids.")
+            if state_key in self.state_cache:
+                raise ValueError(f"Received duplicate new-request payload for cached request {state_key}.")
+            prompts = []
+            first_req = scheduler_output.scheduled_new_reqs[0].req
+            for new_req_data in scheduler_output.scheduled_new_reqs:
+                req = new_req_data.req
+                request_ids = req.request_ids or [new_req_data.sched_req_id]
+                if len(request_ids) != len(req.prompts):
+                    raise ValueError(
+                        f"request_ids length ({len(request_ids)}) does not match prompts length ({len(req.prompts)})"
+                    )
+                prompts.extend(req.prompts)
+            state = DiffusionRequestState(
+                req_id=state_key,
+                sampling=copy.deepcopy(first_req.sampling_params),
+                prompts=prompts,
             )
+            if len(scheduled_req_ids) > 1:
+                state.extra["_super_p95_batch_sched_req_ids"] = list(scheduled_req_ids)
+            self.state_cache[state_key] = state
+            return state, True, list(scheduled_req_ids)
 
-        state = DiffusionRequestState(
-            req_id=req_id,
-            sampling=copy.deepcopy(req.sampling_params),
-            prompts=req.prompts,
-        )
-        self.state_cache[req_id] = state
-        return state, True
+        if scheduler_output.scheduled_cached_reqs.sched_req_ids != scheduled_req_ids:
+            raise ValueError("cached request ids do not match scheduled request ids.")
+        state = self.state_cache.get(state_key)
+        if state is None:
+            raise ValueError(f"Missing cached state for request {state_key}.")
+        return state, False, list(scheduled_req_ids)
 
     def _update_states_after(self, state: DiffusionRequestState, finished: bool) -> None:
         """Step-after update: clear cached state for completed request."""
         if finished:
             self.state_cache.pop(state.req_id, None)
+
+    @staticmethod
+    def _slice_batch_value(value, index: int):
+        if value is None:
+            return None
+        if isinstance(value, torch.Tensor) and value.ndim > 0:
+            return value[index : index + 1]
+        if isinstance(value, list):
+            return value[index : index + 1]
+        if isinstance(value, tuple):
+            return tuple(DiffusionModelRunner._slice_batch_value(item, index) for item in value)
+        return value
+
+    def _split_batch_result(
+        self,
+        result: DiffusionOutput | None,
+        req_ids: list[str],
+    ) -> dict[str, DiffusionOutput | None]:
+        if result is None:
+            return {req_id: None for req_id in req_ids}
+        if result.error:
+            return {req_id: DiffusionOutput(error=result.error) for req_id in req_ids}
+        outputs: dict[str, DiffusionOutput | None] = {}
+        for index, req_id in enumerate(req_ids):
+            outputs[req_id] = DiffusionOutput(
+                output=self._slice_batch_value(result.output, index),
+                trajectory_timesteps=copy.deepcopy(result.trajectory_timesteps),
+                trajectory_latents=self._slice_batch_value(result.trajectory_latents, index),
+                trajectory_decoded=self._slice_batch_value(result.trajectory_decoded, index),
+                error=None,
+                post_process_func=result.post_process_func,
+                custom_output=copy.deepcopy(result.custom_output),
+                stage_durations=copy.deepcopy(result.stage_durations),
+                peak_memory_mb=result.peak_memory_mb,
+            )
+        return outputs
 
     def execute_stepwise(self, scheduler_output: DiffusionSchedulerOutput) -> RunnerOutput:
         """Execute one step for one scheduled request and return runner output."""
@@ -367,8 +416,9 @@ class DiffusionModelRunner:
         use_hsdp = self.od_config.parallel_config.use_hsdp
         grad_context = torch.no_grad() if use_hsdp else torch.inference_mode()
         with grad_context:
-            state, is_new_request = self._update_states(scheduler_output)
-            if _step_trace_enabled():
+            state, is_new_request, scheduled_req_ids = self._update_states(scheduler_output)
+            trace_steps = _step_trace_enabled()
+            if trace_steps:
                 logger.info(
                     "step-trace runner begin req_id=%s step_index=%s is_new_request=%s denoise_completed=%s",
                     state.req_id,
@@ -394,25 +444,29 @@ class DiffusionModelRunner:
                 if is_new_request:
                     reset_npu_layer_norm_debug_counter()
                     try:
-                        logger.info("stepwise stage begin: prepare_encode req_id=%s", state.req_id)
+                        if trace_steps:
+                            logger.info("stepwise stage begin: prepare_encode req_id=%s", state.req_id)
                         self.pipeline.prepare_encode(state)
-                        logger.info("stepwise stage end: prepare_encode req_id=%s", state.req_id)
+                        if trace_steps:
+                            logger.info("stepwise stage end: prepare_encode req_id=%s", state.req_id)
                     except Exception:
                         logger.exception("stepwise stage failed: prepare_encode req_id=%s", state.req_id)
                         raise
 
                 try:
-                    logger.info(
-                        "stepwise stage begin: denoise_step req_id=%s step_index=%s",
-                        state.req_id,
-                        state.step_index,
-                    )
+                    if trace_steps:
+                        logger.info(
+                            "stepwise stage begin: denoise_step req_id=%s step_index=%s",
+                            state.req_id,
+                            state.step_index,
+                        )
                     noise_pred = self.pipeline.denoise_step(state)
-                    logger.info(
-                        "stepwise stage end: denoise_step req_id=%s step_index=%s",
-                        state.req_id,
-                        state.step_index,
-                    )
+                    if trace_steps:
+                        logger.info(
+                            "stepwise stage end: denoise_step req_id=%s step_index=%s",
+                            state.req_id,
+                            state.step_index,
+                        )
                 except Exception:
                     logger.exception(
                         "stepwise stage failed: denoise_step req_id=%s step_index=%s",
@@ -429,17 +483,19 @@ class DiffusionModelRunner:
                     result = DiffusionOutput(error="stepwise denoise interrupted")
                 else:
                     try:
-                        logger.info(
-                            "stepwise stage begin: step_scheduler req_id=%s step_index=%s",
-                            state.req_id,
-                            state.step_index,
-                        )
+                        if trace_steps:
+                            logger.info(
+                                "stepwise stage begin: step_scheduler req_id=%s step_index=%s",
+                                state.req_id,
+                                state.step_index,
+                            )
                         self.pipeline.step_scheduler(state, noise_pred)
-                        logger.info(
-                            "stepwise stage end: step_scheduler req_id=%s step_index=%s",
-                            state.req_id,
-                            state.step_index,
-                        )
+                        if trace_steps:
+                            logger.info(
+                                "stepwise stage end: step_scheduler req_id=%s step_index=%s",
+                                state.req_id,
+                                state.step_index,
+                            )
                     except Exception:
                         logger.exception(
                             "stepwise stage failed: step_scheduler req_id=%s step_index=%s",
@@ -450,17 +506,19 @@ class DiffusionModelRunner:
                     finished = state.denoise_completed
                     if finished:
                         try:
-                            logger.info(
-                                "stepwise stage begin: post_decode req_id=%s step_index=%s",
-                                state.req_id,
-                                state.step_index,
-                            )
+                            if trace_steps:
+                                logger.info(
+                                    "stepwise stage begin: post_decode req_id=%s step_index=%s",
+                                    state.req_id,
+                                    state.step_index,
+                                )
                             result = self.pipeline.post_decode(state)
-                            logger.info(
-                                "stepwise stage end: post_decode req_id=%s step_index=%s",
-                                state.req_id,
-                                state.step_index,
-                            )
+                            if trace_steps:
+                                logger.info(
+                                    "stepwise stage end: post_decode req_id=%s step_index=%s",
+                                    state.req_id,
+                                    state.step_index,
+                                )
                         except Exception:
                             logger.exception(
                                 "stepwise stage failed: post_decode req_id=%s step_index=%s",
@@ -472,7 +530,7 @@ class DiffusionModelRunner:
                         result = None
 
                 self._update_states_after(state, finished)
-                if _step_trace_enabled():
+                if trace_steps:
                     logger.info(
                         "step-trace runner end req_id=%s step_index=%s finished=%s result_is_none=%s",
                         state.req_id,
@@ -481,9 +539,17 @@ class DiffusionModelRunner:
                         result is None,
                     )
 
+                outputs = None
+                result_for_first = result
+                if finished and len(scheduled_req_ids) > 1:
+                    outputs = self._split_batch_result(result, scheduled_req_ids)
+                    result_for_first = outputs.get(scheduled_req_ids[0])
+
                 return RunnerOutput(
-                    req_id=state.req_id,
+                    req_id=scheduled_req_ids[0],
+                    req_ids=scheduled_req_ids,
                     step_index=state.step_index,
                     finished=finished,
-                    result=result,
+                    result=result_for_first,
+                    outputs=outputs,
                 )

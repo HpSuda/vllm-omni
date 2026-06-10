@@ -56,6 +56,9 @@ python3 benchmarks/diffusion/super_p95_dispatcher.py \
   --quota-amount 1 \
   --threshold-ratio 0.8 \
   --sacrificial-load-factor 0.1 \
+  --backend-env SUPER_P95_QWEN_SMALL_BATCH2=1 \
+  --backend-env SUPER_P95_IMAGE_BATCH_SEARCH_WINDOW=32 \
+  --backend-env SUPER_P95_QWEN_SMALL_BATCH_MIN_PENDING=1 \
   --backend-args=--omni \
   --backend-args=--vae-use-slicing \
   --backend-args=--vae-use-tiling
@@ -80,7 +83,7 @@ Super P95:
 BASE_URL=http://127.0.0.1:8080 \
 NUM_PROMPTS=500 \
 MAX_CONCURRENCY=1000 \
-REQUEST_RATES=0.8 \
+REQUEST_RATES=0.5 \
 SEED=0 \
 RANDOM_REQUEST_SEED=8 \
 ARRIVAL_SEED=8 \

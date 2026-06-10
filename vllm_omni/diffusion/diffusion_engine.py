@@ -365,15 +365,30 @@ class DiffusionEngine:
                             sched_req_id,
                             exc_info=True,
                         )
+                        error_outputs = {
+                            req_id: DiffusionOutput(error=str(exc))
+                            for req_id in sched_output.scheduled_req_ids
+                        }
                         runner_output = RunnerOutput(
                             req_id=sched_req_id,
+                            req_ids=list(sched_output.scheduled_req_ids),
                             finished=True,
-                            result=DiffusionOutput(error=str(exc)),
+                            result=error_outputs.get(sched_req_id),
+                            outputs=error_outputs,
                         )
 
                     finished_req_ids = self.scheduler.update_from_runner_output(sched_output, runner_output)
                     with self._driver_cv:
-                        self._record_finished_output_locked(sched_req_id, finished_req_ids, runner_output.result)
+                        runner_outputs = getattr(runner_output, "outputs", None)
+                        if runner_outputs:
+                            for finished_req_id in finished_req_ids:
+                                self._record_finished_output_locked(
+                                    finished_req_id,
+                                    finished_req_ids,
+                                    runner_outputs.get(finished_req_id),
+                                )
+                        else:
+                            self._record_finished_output_locked(sched_req_id, finished_req_ids, runner_output.result)
                         self._driver_cv.notify_all()
                 else:
                     req = sched_output.scheduled_new_reqs[0].req
