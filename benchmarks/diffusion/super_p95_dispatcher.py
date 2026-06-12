@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
@@ -41,6 +41,9 @@ except ModuleNotFoundError:
 
 logger = init_logger(__name__)
 
+# Keep dispatcher-side routing aligned with backend batch2 eligibility.
+_QWEN_SMALL_IMAGE_MAX_PIXELS = 768 * 768
+
 
 @dataclass
 class BackendState:
@@ -52,6 +55,7 @@ class BackendState:
     inflight_normal_requests: int = 0
     inflight_sacrificial_requests: int = 0
     latency_ema_s: float = 0.0
+    batchable_counts: dict[tuple[Any, ...], int] = field(default_factory=dict)
 
     def weighted_total_load_s(self, alpha: float) -> float:
         return self.normal_load_s + alpha * self.sacrificial_load_s
@@ -77,6 +81,7 @@ class DispatchDecision:
     credits_after: int
     quota_added: int
     global_max_service_s: float
+    batch_key: tuple[Any, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +331,14 @@ class SuperP95Dispatcher:
         self._backend_launcher = backend_launcher
         self._video_backend_by_id: dict[str, int] = {}
         self._video_decision_by_id: dict[str, DispatchDecision] = {}
+        backend_batch2_flag = (
+            backend_launcher.backend_env.get("SUPER_P95_QWEN_SMALL_BATCH2")
+            if backend_launcher is not None
+            else None
+        )
+        self._qwen_small_batch2_enabled = self._env_flag_enabled(
+            os.environ.get("SUPER_P95_QWEN_SMALL_BATCH2")
+        ) or self._env_flag_enabled(backend_batch2_flag)
 
     async def startup(self) -> None:
         if self._backend_launcher is not None:
@@ -578,10 +591,8 @@ class SuperP95Dispatcher:
             else:
                 self.normal_dispatches += 1
 
-            backend_index = min(
-                range(len(self.backends)),
-                key=lambda idx: self.backends[idx].score_tuple(self.sacrificial_load_factor),
-            )
+            batch_key = None if is_sacrificial else self._batch_routing_key(path, body)
+            backend_index = self._select_backend_index(batch_key)
             backend = self.backends[backend_index]
             selected_estimated_service_s = estimated_service_s_by_backend[backend_index]
             if is_sacrificial:
@@ -590,10 +601,13 @@ class SuperP95Dispatcher:
             else:
                 backend.normal_load_s += selected_estimated_service_s
                 backend.inflight_normal_requests += 1
+                if batch_key is not None:
+                    backend.batchable_counts[batch_key] = backend.batchable_counts.get(batch_key, 0) + 1
             logger.info(
                 "super_p95 dispatch arrival=%d path=%s backend=%s sacrificial=%s "
                 "quota_added=%d credits_before=%d credits_after=%d "
                 "estimated_service_s=%.4f global_max_service_s=%.4f "
+                "batch_key=%s backend_batchable_count=%d "
                 "normal_dispatches=%d sacrificial_dispatches=%d",
                 self.arrival_counter,
                 path,
@@ -604,6 +618,8 @@ class SuperP95Dispatcher:
                 self.credits,
                 selected_estimated_service_s,
                 self.global_max_service_s,
+                batch_key,
+                backend.batchable_counts.get(batch_key, 0) if batch_key is not None else 0,
                 self.normal_dispatches,
                 self.sacrificial_dispatches,
             )
@@ -616,7 +632,25 @@ class SuperP95Dispatcher:
                 credits_after=self.credits,
                 quota_added=quota_added,
                 global_max_service_s=self.global_max_service_s,
+                batch_key=batch_key,
             )
+
+    def _select_backend_index(self, batch_key: tuple[Any, ...] | None) -> int:
+        if batch_key is not None:
+            odd_candidates = [
+                idx
+                for idx, backend in enumerate(self.backends)
+                if backend.batchable_counts.get(batch_key, 0) % 2 == 1
+            ]
+            if odd_candidates:
+                return min(
+                    odd_candidates,
+                    key=lambda idx: self.backends[idx].score_tuple(self.sacrificial_load_factor),
+                )
+        return min(
+            range(len(self.backends)),
+            key=lambda idx: self.backends[idx].score_tuple(self.sacrificial_load_factor),
+        )
 
     async def _apply_response_feedback(
         self,
@@ -628,6 +662,7 @@ class SuperP95Dispatcher:
             backend = self.backends[decision.backend_index]
             self._update_latency_ema(backend, elapsed_s)
             self._dec_inflight(backend, decision.is_sacrificial)
+            self._dec_batchable_count(backend, decision.batch_key)
             authoritative = parse_super_p95_load_headers(headers)
             if authoritative is not None:
                 backend.normal_load_s = authoritative.normal_load_s
@@ -640,6 +675,7 @@ class SuperP95Dispatcher:
             backend = self.backends[decision.backend_index]
             self._update_latency_ema(backend, elapsed_s)
             self._dec_inflight(backend, decision.is_sacrificial)
+            self._dec_batchable_count(backend, decision.batch_key)
             self._fallback_remove_estimated_load(backend, decision)
 
     @staticmethod
@@ -657,6 +693,16 @@ class SuperP95Dispatcher:
             backend.inflight_sacrificial_requests = max(backend.inflight_sacrificial_requests - 1, 0)
         else:
             backend.inflight_normal_requests = max(backend.inflight_normal_requests - 1, 0)
+
+    @staticmethod
+    def _dec_batchable_count(backend: BackendState, batch_key: tuple[Any, ...] | None) -> None:
+        if batch_key is None:
+            return
+        count = backend.batchable_counts.get(batch_key, 0)
+        if count <= 1:
+            backend.batchable_counts.pop(batch_key, None)
+        else:
+            backend.batchable_counts[batch_key] = count - 1
 
     @staticmethod
     def _fallback_remove_estimated_load(backend: BackendState, decision: DispatchDecision) -> None:
@@ -680,6 +726,80 @@ class SuperP95Dispatcher:
         else:
             headers.pop(HEADER_SUPER_P95_SACRIFICIAL, None)
         return headers
+
+    @staticmethod
+    def _env_flag_enabled(value: str | None) -> bool:
+        return str(value or "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _batch_routing_key(self, path: str, body: dict[str, Any]) -> tuple[Any, ...] | None:
+        if not self._qwen_small_batch2_enabled:
+            return None
+        model = str(body.get("model") or "").lower()
+        if model and "qwen" not in model:
+            return None
+        if path == "/v1/chat/completions":
+            params = body.get("extra_body") or {}
+            width = params.get("width")
+            height = params.get("height")
+            steps = params.get("num_inference_steps")
+            frames = params.get("num_frames")
+            negative_prompt = params.get("negative_prompt")
+            guidance_scale = params.get("guidance_scale")
+            true_cfg_scale = params.get("true_cfg_scale")
+            cfg_text_scale = params.get("cfg_text_scale")
+            cfg_img_scale = params.get("cfg_img_scale")
+            seed = params.get("seed")
+            generator_device = params.get("generator_device")
+            num_outputs = params.get("num_outputs_per_prompt", 1)
+        elif path == "/v1/images/generations":
+            width, height = _parse_size(body.get("size"))
+            steps = body.get("num_inference_steps")
+            frames = body.get("num_frames")
+            negative_prompt = body.get("negative_prompt")
+            guidance_scale = body.get("guidance_scale")
+            true_cfg_scale = body.get("true_cfg_scale")
+            cfg_text_scale = body.get("cfg_text_scale")
+            cfg_img_scale = body.get("cfg_img_scale")
+            seed = body.get("seed")
+            generator_device = body.get("generator_device")
+            num_outputs = body.get("n", body.get("num_outputs_per_prompt", 1))
+        else:
+            return None
+
+        try:
+            width_i = int(width)
+            height_i = int(height)
+        except (TypeError, ValueError):
+            return None
+        try:
+            frames_i = int(frames) if frames is not None else 1
+        except (TypeError, ValueError):
+            return None
+        try:
+            num_outputs_i = int(num_outputs or 1)
+        except (TypeError, ValueError):
+            return None
+        if frames_i > 1 or num_outputs_i != 1:
+            return None
+        if width_i * height_i > _QWEN_SMALL_IMAGE_MAX_PIXELS:
+            return None
+        return (
+            width_i,
+            height_i,
+            steps,
+            guidance_scale,
+            true_cfg_scale,
+            cfg_text_scale,
+            cfg_img_scale,
+            negative_prompt,
+            seed,
+            generator_device,
+        )
 
     @staticmethod
     def _estimate_service_s(path: str, body: dict[str, Any], hardware_profile: str) -> float:
