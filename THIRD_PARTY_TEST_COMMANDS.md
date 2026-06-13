@@ -57,7 +57,7 @@ python3 benchmarks/diffusion/super_p95_dispatcher.py \
   --threshold-ratio 0.8 \
   --sacrificial-load-factor 0.1 \
   --backend-env SUPER_P95_QWEN_SMALL_BATCH2=1 \
-  --backend-env SUPER_P95_IMAGE_BATCH_SEARCH_WINDOW=32 \
+  --backend-env SUPER_P95_IMAGE_BATCH_SEARCH_WINDOW=64 \
   --backend-env SUPER_P95_QWEN_SMALL_BATCH_MIN_PENDING=1 \
   --backend-args=--omni \
   --backend-args=--vae-use-slicing \
