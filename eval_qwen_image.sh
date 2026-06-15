@@ -56,7 +56,7 @@ Environment overrides:
   BASE_URL          Default: http://127.0.0.1:8080
   MODEL             Default: Qwen/Qwen-Image
   NUM_PROMPTS       Default: 500
-  MAX_CONCURRENCY   Default: 1000
+  MAX_CONCURRENCY   Default: 8000000
   REQUEST_RATES     Default: "0.8"
   WARMUP_REQUESTS   Default: 1
   WARMUP_STEPS      Default: 1
@@ -87,7 +87,7 @@ esac
 BASE_URL="${BASE_URL:-http://127.0.0.1:8080}"
 MODEL="${MODEL:-Qwen/Qwen-Image}"
 NUM_PROMPTS="${NUM_PROMPTS:-500}"
-MAX_CONCURRENCY="${MAX_CONCURRENCY:-1000}"
+MAX_CONCURRENCY="${MAX_CONCURRENCY:-8000000}"
 REQUEST_RATES="${REQUEST_RATES:-0.8}"
 WARMUP_REQUESTS="${WARMUP_REQUESTS:-1}"
 WARMUP_STEPS="${WARMUP_STEPS:-1}"
