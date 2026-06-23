@@ -57,12 +57,11 @@ class _QueuedRequest:
 
     def refresh_sort_key(self) -> None:
         if self.is_sacrificial:
-            # Sacrificial requests are the explicit cost sink: newer sacrificial
-            # arrivals are allowed to jump ahead of older sacrificial requests.
+            # Tail requests are the explicit p95 cost sink. Newer tail requests
+            # run first when normal work is drained, keeping the oldest tail
+            # requests as the concentrated p99 cost.
             self.sort_key = (-self.arrival_seq,)
         else:
-            # Normal requests preserve FIFO to avoid inflating worst-case delay
-            # by reordering within the main queue.
             self.sort_key = (self.arrival_seq,)
 
 

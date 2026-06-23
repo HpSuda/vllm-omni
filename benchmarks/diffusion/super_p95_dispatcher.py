@@ -178,6 +178,7 @@ class ManagedBackendLauncher:
         # Keep managed launch aligned with v0.16 semantics without depending on
         # a serve CLI flag that does not exist in this branch.
         env["VLLM_OMNI_SUPER_P95_HARDWARE_PROFILE"] = spec.hardware_profile
+        env.setdefault("MASTER_PORT", str(22000 + spec.port))
         env.setdefault("VLLM_OMNI_MASTER_PORT", str(22000 + spec.port))
         if self.backend_scheduler:
             env["VLLM_OMNI_DIFFUSION_SCHEDULER"] = self.backend_scheduler
@@ -297,6 +298,7 @@ class SuperP95Dispatcher:
         threshold_ratio: float,
         sacrificial_load_factor: float,
         request_timeout_s: float,
+        long_request_ratio: float = 1.5,
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
     ) -> None:
@@ -314,6 +316,7 @@ class SuperP95Dispatcher:
         self.quota_every = max(quota_every, 1)
         self.quota_amount = max(quota_amount, 0)
         self.threshold_ratio = threshold_ratio
+        self.long_request_ratio = max(long_request_ratio, 1.0)
         self.sacrificial_load_factor = sacrificial_load_factor
         self.request_timeout_s = request_timeout_s
         self.trace_log_file = trace_log_file
@@ -321,6 +324,8 @@ class SuperP95Dispatcher:
         self._lock = asyncio.Lock()
         self.arrival_counter = 0
         self.credits = 0
+        self.tail_admitted_count = 0
+        self.global_min_service_s: float | None = None
         self.global_max_service_s = 0.0
         self.normal_dispatches = 0
         self.sacrificial_dispatches = 0
@@ -578,14 +583,18 @@ class SuperP95Dispatcher:
                 self.quota_refills += 1
                 self.quota_credits_added += self.quota_amount
 
+            if self.global_min_service_s is None:
+                self.global_min_service_s = estimated_service_s
+            else:
+                self.global_min_service_s = min(self.global_min_service_s, estimated_service_s)
             self.global_max_service_s = max(self.global_max_service_s, estimated_service_s)
             is_sacrificial = (
                 self.credits > 0
-                and self.global_max_service_s > 0.0
-                and estimated_service_s >= self.threshold_ratio * self.global_max_service_s
+                and self._is_sacrificial_candidate(estimated_service_s)
             )
             if is_sacrificial:
                 self.credits -= 1
+                self.tail_admitted_count += 1
                 self.sacrificial_dispatches += 1
                 self.quota_credits_consumed += 1
             else:
@@ -677,6 +686,15 @@ class SuperP95Dispatcher:
             self._dec_inflight(backend, decision.is_sacrificial)
             self._dec_batchable_count(backend, decision.batch_key)
             self._fallback_remove_estimated_load(backend, decision)
+
+    def _is_sacrificial_candidate(self, estimated_service_s: float) -> bool:
+        if self.global_max_service_s <= 0.0:
+            return False
+        if estimated_service_s < self.threshold_ratio * self.global_max_service_s:
+            return False
+        if self.global_min_service_s is None or self.global_min_service_s <= 0.0:
+            return False
+        return estimated_service_s >= self.long_request_ratio * self.global_min_service_s
 
     @staticmethod
     def _update_latency_ema(backend: BackendState, elapsed_s: float) -> None:
@@ -1016,6 +1034,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quota-every", type=int, default=20)
     parser.add_argument("--quota-amount", type=int, default=1)
     parser.add_argument("--threshold-ratio", type=float, default=0.8)
+    parser.add_argument(
+        "--long-request-ratio",
+        type=float,
+        default=1.5,
+        help=(
+            "Minimum estimated-service ratio against the shortest observed request before a tail budget "
+            "can be spent. This keeps budget unused when the observed workload has no clearly long request."
+        ),
+    )
     parser.add_argument("--sacrificial-load-factor", type=float, default=0.1)
     parser.add_argument(
         "--request-timeout-s",
@@ -1150,6 +1177,7 @@ def build_dispatcher_from_args(args: argparse.Namespace) -> SuperP95Dispatcher:
         quota_every=args.quota_every,
         quota_amount=args.quota_amount,
         threshold_ratio=args.threshold_ratio,
+        long_request_ratio=getattr(args, "long_request_ratio", 1.5),
         sacrificial_load_factor=args.sacrificial_load_factor,
         request_timeout_s=args.request_timeout_s,
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
