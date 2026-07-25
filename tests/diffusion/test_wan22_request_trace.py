@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+import vllm_omni.trace_logging as trace_logging
 from benchmarks.diffusion.wan22_request_trace import (
     build_request_rows,
     load_trace_events,
@@ -201,3 +202,18 @@ def test_write_trace_event_appends_jsonl(tmp_path) -> None:
     assert record["request_id"] == "request-00001"
     assert record["estimated_service_s"] == 68.602
     assert isinstance(record["ts_ns"], int)
+
+
+@pytest.mark.parametrize("failure_point", ["json.dumps", "os.open", "os.write"])
+def test_write_trace_event_is_best_effort(tmp_path, monkeypatch, failure_point: str) -> None:
+    def fail(*args, **kwargs):
+        raise OSError("injected trace failure")
+
+    owner_name, attribute = failure_point.split(".")
+    monkeypatch.setattr(getattr(trace_logging, owner_name), attribute, fail)
+
+    write_trace_event(
+        str(tmp_path / "node.jsonl"),
+        "backend_start",
+        request_id="request-00001",
+    )
