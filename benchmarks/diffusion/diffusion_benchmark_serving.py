@@ -319,6 +319,9 @@ class VBenchDataset(BaseDataset):
             seed=self.args.seed,
             fps=self.args.fps,
             image_paths=image_paths,
+            request_id=f"request-{idx:05d}",
+            trace_log_file=getattr(self.args, "trace_log_file", None),
+            trace_label=getattr(self.args, "trace_label", None),
         )
 
     def get_requests(self) -> list[RequestFuncInput]:
@@ -547,6 +550,8 @@ class TraceDataset(BaseDataset):
             slo_ms=slo_ms,
             image_paths=image_paths,
             request_id=str(row.get("request_id")) if row.get("request_id") is not None else str(uuid.uuid4()),
+            trace_log_file=getattr(self.args, "trace_log_file", None),
+            trace_label=getattr(self.args, "trace_label", None),
         )
 
     def get_requests(self) -> list[RequestFuncInput]:
@@ -613,6 +618,9 @@ class RandomDataset(BaseDataset):
             seed=self.args.seed,
             extra_body=extra_body,
             image_paths=self._random_image_path,
+            request_id=f"request-{idx:05d}",
+            trace_log_file=getattr(self.args, "trace_log_file", None),
+            trace_label=getattr(self.args, "trace_label", None),
             **params,
         )
 
@@ -901,7 +909,10 @@ async def benchmark(args):
                 with num_inference_steps={args.warmup_num_inference_steps}..."
             )
             for i in range(args.warmup_requests):
-                warm_req = requests_list[i % len(requests_list)]
+                warm_req = replace(
+                    requests_list[i % len(requests_list)],
+                    request_id=f"warmup-{i:05d}",
+                )
                 if args.warmup_num_inference_steps is not None:
                     warm_req = replace(
                         warm_req,
@@ -1105,6 +1116,18 @@ if __name__ == "__main__":
     )
     parser.add_argument("--fps", type=int, default=None, help="FPS (for video).")
     parser.add_argument("--output-file", type=str, default=None, help="Output JSON file for metrics.")
+    parser.add_argument(
+        "--trace-log-file",
+        type=str,
+        default=None,
+        help="Optional JSONL file for per-request client arrival and finish events.",
+    )
+    parser.add_argument(
+        "--trace-label",
+        type=str,
+        default="client",
+        help="Node label stored in --trace-log-file.",
+    )
     parser.add_argument(
         "--slo",
         action="store_true",

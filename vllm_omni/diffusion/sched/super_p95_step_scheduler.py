@@ -6,10 +6,11 @@ from __future__ import annotations
 import heapq
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 from vllm.logger import init_logger
 
-from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
+from vllm_omni.diffusion.data import DiffusionOutput
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.diffusion.sched.base_scheduler import _BaseScheduler
 from vllm_omni.diffusion.sched.interface import (
@@ -25,6 +26,7 @@ from vllm_omni.diffusion.super_p95 import (
     get_super_p95_request_metadata,
     normalize_super_p95_hardware_profile,
 )
+from vllm_omni.trace_logging import write_trace_event
 
 logger = init_logger(__name__)
 
@@ -88,6 +90,9 @@ class SuperP95StepScheduler(_BaseScheduler):
         self._num_scheduled_normal = 0
         self._num_scheduled_sacrificial = 0
         self._num_preemptions = 0
+        self._selected_once: set[str] = set()
+        self._trace_log_file = os.environ.get("VLLM_OMNI_TRACE_LOG_FILE")
+        self._trace_node = os.environ.get("VLLM_OMNI_TRACE_NODE", "backend")
 
     def has_requests(self) -> bool:
         return bool(self._running or self._normal_pending or self._sacrificial_pending)
@@ -130,6 +135,11 @@ class SuperP95StepScheduler(_BaseScheduler):
             self._num_added_sacrificial += 1
         else:
             self._num_added_normal += 1
+        self._write_scheduler_trace(
+            "scheduler_enqueue",
+            queued,
+            arrival_seq=queued.arrival_seq,
+        )
         logger.info(
             "super_p95 scheduler add req=%s sacrificial=%s estimated_service_s=%.4f "
             "total_steps=%d added_normal=%d added_sacrificial=%d",
@@ -157,6 +167,14 @@ class SuperP95StepScheduler(_BaseScheduler):
                 active_state.status = DiffusionRequestStatus.PREEMPTED
                 self._push_pending(active_queued)
                 self._num_preemptions += 1
+                self._write_scheduler_trace(
+                    "scheduler_preempt",
+                    active_queued,
+                    reason="normal_outranks_tail",
+                    candidate_sched_req_id=candidate.sched_req_id,
+                    candidate_request_id=self._public_request_id(candidate.sched_req_id),
+                    candidate_queue_class="tail" if candidate.is_sacrificial else "normal",
+                )
                 logger.info(
                     "super_p95 scheduler preempt running=%s sacrificial=%s candidate=%s candidate_sacrificial=%s "
                     "preemptions=%d normal_pending=%d sacrificial_pending=%d",
@@ -197,6 +215,14 @@ class SuperP95StepScheduler(_BaseScheduler):
                         self._num_scheduled_sacrificial += 1
                     else:
                         self._num_scheduled_normal += 1
+                    selection_kind = "resume" if item.sched_req_id in self._selected_once else "first"
+                    self._selected_once.add(item.sched_req_id)
+                    self._write_scheduler_trace(
+                        "scheduler_select",
+                        item,
+                        selection_kind=selection_kind,
+                        was_new_request=was_new_request,
+                    )
                     logger.info(
                         "super_p95 scheduler select req=%s sacrificial=%s completed_steps=%d total_steps=%d "
                         "scheduled_normal=%d scheduled_sacrificial=%d normal_pending=%d sacrificial_pending=%d",
@@ -242,6 +268,11 @@ class SuperP95StepScheduler(_BaseScheduler):
         if queued is not None:
             self._current_time_s += queued.remaining_service_s
             queued.completed_steps = queued.total_steps
+            self._write_scheduler_terminal(
+                queued,
+                status=statuses[sched_req_id],
+                error=output.error,
+            )
         return self._finish_requests(statuses, errors)
 
     def update_from_runner_output(self, sched_output: DiffusionSchedulerOutput, runner_output) -> set[str]:
@@ -287,12 +318,27 @@ class SuperP95StepScheduler(_BaseScheduler):
                 state.status = DiffusionRequestStatus.RUNNING
 
         if runner_output.finished:
+            for sched_req_id, status in statuses.items():
+                queued = self._queue_metadata.get(sched_req_id)
+                if queued is not None:
+                    self._write_scheduler_terminal(
+                        queued,
+                        status=status,
+                        error=errors.get(sched_req_id),
+                    )
             return self._finish_requests(statuses, errors)
         return set()
 
     def abort_request(self, sched_req_id: str) -> bool:
         if self.get_request_state(sched_req_id) is None:
             return False
+        queued = self._queue_metadata.get(sched_req_id)
+        if queued is not None:
+            self._write_scheduler_terminal(
+                queued,
+                status=DiffusionRequestStatus.FINISHED_ABORTED,
+                error="aborted",
+            )
         self.finish_requests(sched_req_id, DiffusionRequestStatus.FINISHED_ABORTED)
         return True
 
@@ -306,6 +352,11 @@ class SuperP95StepScheduler(_BaseScheduler):
             queued = self._queue_metadata.get(sched_req_id)
             if queued is not None:
                 self._push_pending(queued)
+                self._write_scheduler_trace(
+                    "scheduler_preempt",
+                    queued,
+                    reason="external",
+                )
             return True
         return False
 
@@ -320,9 +371,58 @@ class SuperP95StepScheduler(_BaseScheduler):
         self._num_scheduled_normal = 0
         self._num_scheduled_sacrificial = 0
         self._num_preemptions = 0
+        self._selected_once.clear()
 
     def _pop_extra_request_state(self, sched_req_id: str) -> None:
         self._queue_metadata.pop(sched_req_id, None)
+        self._selected_once.discard(sched_req_id)
+
+    def _public_request_id(self, sched_req_id: str) -> str:
+        state = self._request_states.get(sched_req_id)
+        if state is not None and state.req.request_ids:
+            return state.req.request_ids[0]
+        return sched_req_id
+
+    def _write_scheduler_trace(
+        self,
+        event: str,
+        queued: _QueuedRequest,
+        **fields: Any,
+    ) -> None:
+        state = self._request_states.get(queued.sched_req_id)
+        public_request_ids = list(state.req.request_ids) if state is not None else []
+        write_trace_event(
+            self._trace_log_file,
+            event,
+            node=self._trace_node,
+            request_id=self._public_request_id(queued.sched_req_id),
+            sched_req_id=queued.sched_req_id,
+            public_request_ids=public_request_ids,
+            queue_class="tail" if queued.is_sacrificial else "normal",
+            sacrificial=queued.is_sacrificial,
+            estimated_service_s=queued.estimated_service_s,
+            completed_steps=queued.completed_steps,
+            total_steps=queued.total_steps,
+            normal_pending_depth=len(self._normal_pending),
+            tail_pending_depth=len(self._sacrificial_pending),
+            running_depth=len(self._running),
+            **fields,
+        )
+
+    def _write_scheduler_terminal(
+        self,
+        queued: _QueuedRequest,
+        *,
+        status: DiffusionRequestStatus,
+        error: str | None,
+    ) -> None:
+        event = "scheduler_complete" if status == DiffusionRequestStatus.FINISHED_COMPLETED else "scheduler_failed"
+        self._write_scheduler_trace(
+            event,
+            queued,
+            status=status.name,
+            error=error,
+        )
 
     def _push_pending(self, queued: _QueuedRequest) -> None:
         queued.refresh_sort_key()

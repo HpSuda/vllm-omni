@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import json
 import threading
 from unittest.mock import Mock, patch
 
 import pytest
 
 from vllm_omni.diffusion.data import DiffusionOutput
-from vllm_omni.diffusion.diffusion_engine import DiffusionEngine
-from vllm_omni.diffusion.diffusion_engine import _make_default_scheduler
+from vllm_omni.diffusion.diffusion_engine import DiffusionEngine, _make_default_scheduler
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.diffusion.sched import (
     DiffusionRequestStatus,
@@ -329,6 +329,76 @@ class TestSuperP95StepScheduler:
         sched_output = self.scheduler.schedule()
         assert _new_ids(sched_output) == [newer_id]
         assert older_id != newer_id
+
+    def test_request_trace_records_scheduler_boundaries(self, tmp_path, monkeypatch) -> None:
+        trace_file = tmp_path / "backend.jsonl"
+        monkeypatch.setenv("VLLM_OMNI_TRACE_LOG_FILE", str(trace_file))
+        monkeypatch.setenv("VLLM_OMNI_TRACE_NODE", "backend-8091")
+        scheduler = SuperP95StepScheduler()
+        scheduler.initialize(Mock())
+
+        tail_id = scheduler.add_request(
+            _make_super_request(
+                "video-tail",
+                estimated_service_s=100.0,
+                sacrificial=True,
+            )
+        )
+        tail_first = scheduler.schedule()
+        scheduler.update_from_runner_output(
+            tail_first,
+            RunnerOutput(
+                req_id=tail_id,
+                step_index=1,
+                finished=False,
+                result=None,
+            ),
+        )
+
+        normal_id = scheduler.add_request(
+            _make_super_request(
+                "video-normal",
+                estimated_service_s=20.0,
+            )
+        )
+        normal_first = scheduler.schedule()
+        scheduler.update_from_runner_output(
+            normal_first,
+            RunnerOutput(
+                req_id=normal_id,
+                step_index=10,
+                finished=True,
+                result=DiffusionOutput(output=None),
+            ),
+        )
+
+        tail_resume = scheduler.schedule()
+        scheduler.update_from_runner_output(
+            tail_resume,
+            RunnerOutput(
+                req_id=tail_id,
+                step_index=10,
+                finished=True,
+                result=DiffusionOutput(output=None, error="worker failed"),
+            ),
+        )
+
+        events = [json.loads(line) for line in trace_file.read_text(encoding="utf-8").splitlines()]
+        event_names = [event["event"] for event in events]
+        assert event_names.count("scheduler_enqueue") == 2
+        assert event_names.count("scheduler_select") == 3
+        assert event_names.count("scheduler_preempt") == 1
+        assert event_names.count("scheduler_complete") == 1
+        assert event_names.count("scheduler_failed") == 1
+
+        tail_selects = [
+            event for event in events if event["event"] == "scheduler_select" and event["request_id"] == "video-tail"
+        ]
+        assert [event["selection_kind"] for event in tail_selects] == ["first", "resume"]
+        assert tail_selects[1]["completed_steps"] == 1
+        assert all(event["sched_req_id"] == "video-tail" for event in tail_selects)
+        assert all("normal_pending_depth" in event for event in events)
+        assert all("tail_pending_depth" in event for event in events)
 
 
 class TestDiffusionEngine:

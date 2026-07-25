@@ -81,6 +81,12 @@ from vllm.tool_parsers import ToolParserManager
 from vllm.utils import random_uuid
 from vllm.utils.system_utils import decorate_logs
 
+from vllm_omni.diffusion.super_p95 import (
+    SuperP95LoadSnapshot,
+    apply_super_p95_request_headers,
+    build_super_p95_response_headers,
+    get_super_p95_request_metadata,
+)
 from vllm_omni.entrypoints.async_omni import AsyncOmni
 from vllm_omni.entrypoints.openai.errors import InvalidInputReferenceError
 from vllm_omni.entrypoints.openai.image_api_utils import (
@@ -111,16 +117,13 @@ from vllm_omni.entrypoints.openai.storage import STORAGE_MANAGER
 from vllm_omni.entrypoints.openai.stores import VIDEO_STORE, VIDEO_TASKS
 from vllm_omni.entrypoints.openai.utils import get_stage_type, parse_lora_request
 from vllm_omni.entrypoints.openai.video_api_utils import decode_input_reference
-from vllm_omni.diffusion.super_p95 import (
-    SuperP95LoadSnapshot,
-    apply_super_p95_request_headers,
-    build_super_p95_response_headers,
-    get_super_p95_request_metadata,
-)
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams, OmniSamplingParams, OmniTextPrompt
+from vllm_omni.trace_logging import write_trace_event
 
 logger = init_logger(__name__)
 router = APIRouter()
+_TRACE_LOG_FILE = os.environ.get("VLLM_OMNI_TRACE_LOG_FILE")
+_TRACE_NODE = os.environ.get("VLLM_OMNI_TRACE_NODE", "backend")
 
 # Supported resolution buckets for layered models (e.g., Qwen-Image-Layered)
 SUPPORTED_LAYERED_RESOLUTIONS = (640, 1024)
@@ -1942,20 +1945,64 @@ def _cleanup_video(video_id: str, output_path: str | None):
         logger.warning("Failed to cleanup partial video file '%s' for id=%s", output_path, video_id)
 
 
+def _video_request_trace_fields(request: VideoGenerationRequest) -> dict[str, Any]:
+    video_params = request.resolve_video_params()
+    workload_key = (
+        video_params.width,
+        video_params.height,
+        request.num_inference_steps,
+        video_params.num_frames,
+    )
+    workload_class = {
+        (854, 480, 3, 80): "short",
+        (854, 480, 4, 120): "medium",
+        (1280, 720, 6, 80): "long",
+    }.get(workload_key, "custom")
+    return {
+        "width": video_params.width,
+        "height": video_params.height,
+        "num_frames": video_params.num_frames,
+        "num_inference_steps": request.num_inference_steps,
+        "fps": video_params.fps,
+        "workload_class": workload_class,
+    }
+
+
 async def _run_video_generation_job(
     handler: OmniOpenAIServingVideo,
     request: VideoGenerationRequest,
     video_id: str,
     reference_image: ReferenceImage | None = None,
+    external_request_id: str | None = None,
 ) -> None:
+    trace_request_id = external_request_id or video_id
     job = await VIDEO_STORE.get(video_id)
     if job is None:
         logger.warning("Video job %s missing before generation task started; skipping", video_id)
+        write_trace_event(
+            _TRACE_LOG_FILE,
+            "backend_failed",
+            node=_TRACE_NODE,
+            request_id=trace_request_id,
+            video_id=video_id,
+            error="Video job disappeared before generation started.",
+        )
         return
 
     await VIDEO_STORE.update_fields(video_id, {"status": VideoGenerationStatus.IN_PROGRESS})
     started_at = time.perf_counter()
     output_path = None
+    sacrificial, estimated_service_s = get_super_p95_request_metadata(request.extra_params)
+    write_trace_event(
+        _TRACE_LOG_FILE,
+        "backend_start",
+        node=_TRACE_NODE,
+        request_id=trace_request_id,
+        video_id=video_id,
+        queue_class="tail" if sacrificial else "normal",
+        estimated_service_s=estimated_service_s,
+        **_video_request_trace_fields(request),
+    )
     try:
         response = await handler.generate_videos(request, video_id, reference_image=reference_image)
         if not response.data:
@@ -1968,6 +2015,7 @@ async def _run_video_generation_job(
         output_path = await decode_and_save_video_output(response.data[0], file_name)
         logger.info("Video request %s persisted %s output file.", video_id, output_path)
 
+        inference_time_s = time.perf_counter() - started_at
         await VIDEO_STORE.update_fields(
             video_id,
             {
@@ -1975,13 +2023,24 @@ async def _run_video_generation_job(
                 "progress": 100,
                 "file_name": file_name,
                 "completed_at": int(time.time()),
-                "inference_time_s": time.perf_counter() - started_at,
+                "inference_time_s": inference_time_s,
             },
+        )
+        write_trace_event(
+            _TRACE_LOG_FILE,
+            "backend_complete",
+            node=_TRACE_NODE,
+            request_id=trace_request_id,
+            video_id=video_id,
+            queue_class="tail" if sacrificial else "normal",
+            estimated_service_s=estimated_service_s,
+            inference_time_s=inference_time_s,
         )
     except Exception as exc:
         logger.exception("Video generation failed for id=%s", video_id)
 
         _cleanup_video(video_id, output_path)
+        inference_time_s = time.perf_counter() - started_at
         # TODO: It would be better to have a finite collection of errors to return rather than the exception name
         await VIDEO_STORE.update_fields(
             video_id,
@@ -1989,12 +2048,33 @@ async def _run_video_generation_job(
                 "status": VideoGenerationStatus.FAILED,
                 "completed_at": int(time.time()),
                 "error": VideoError(code=type(exc).__name__, message=str(exc)),
-                "inference_time_s": time.perf_counter() - started_at,
+                "inference_time_s": inference_time_s,
             },
+        )
+        write_trace_event(
+            _TRACE_LOG_FILE,
+            "backend_failed",
+            node=_TRACE_NODE,
+            request_id=trace_request_id,
+            video_id=video_id,
+            queue_class="tail" if sacrificial else "normal",
+            estimated_service_s=estimated_service_s,
+            inference_time_s=inference_time_s,
+            error=repr(exc),
         )
     except asyncio.CancelledError:
         _cleanup_video(video_id, output_path)
         await VIDEO_STORE.pop(video_id)
+        write_trace_event(
+            _TRACE_LOG_FILE,
+            "backend_cancelled",
+            node=_TRACE_NODE,
+            request_id=trace_request_id,
+            video_id=video_id,
+            queue_class="tail" if sacrificial else "normal",
+            estimated_service_s=estimated_service_s,
+            inference_time_s=time.perf_counter() - started_at,
+        )
         raise
 
 
@@ -2014,6 +2094,7 @@ async def create_video(
     input_reference: UploadFile | None = File(default=None),
     image_reference: str | None = Form(default=None),
     model: str | None = Form(default=None),
+    request_id: str | None = Form(default=None),
     seconds: SecondStr | None = Form(default=None),
     size: SizeStr | None = Form(default=None),
     user: str | None = Form(default=None),
@@ -2107,6 +2188,16 @@ async def create_video(
 
     request_data = {k: v for k, v in request_data.items() if v is not None}
     request = VideoGenerationRequest(**request_data)
+    sacrificial, estimated_service_s = get_super_p95_request_metadata(request.extra_params)
+    write_trace_event(
+        _TRACE_LOG_FILE,
+        "backend_arrive",
+        node=_TRACE_NODE,
+        request_id=request_id,
+        queue_class="tail" if sacrificial else "normal",
+        estimated_service_s=estimated_service_s,
+        **_video_request_trace_fields(request),
+    )
 
     handler = Omnivideo(raw_request)
     if handler is None:
@@ -2142,7 +2233,24 @@ async def create_video(
 
     reference_image = ReferenceImage(data=image_data) if image_data is not None else image_data
     await VIDEO_STORE.upsert(ref.id, ref)
-    task = asyncio.create_task(_run_video_generation_job(handler, request, ref.id, reference_image))
+    write_trace_event(
+        _TRACE_LOG_FILE,
+        "backend_job_accepted",
+        node=_TRACE_NODE,
+        request_id=request_id,
+        video_id=ref.id,
+        queue_class="tail" if sacrificial else "normal",
+        estimated_service_s=estimated_service_s,
+    )
+    task = asyncio.create_task(
+        _run_video_generation_job(
+            handler,
+            request,
+            ref.id,
+            reference_image,
+            external_request_id=request_id,
+        )
+    )
     await VIDEO_TASKS.upsert(ref.id, task)
     raw_response.headers.update(_get_super_p95_post_arrival_headers(raw_request, parsed_extra_params))
     return ref

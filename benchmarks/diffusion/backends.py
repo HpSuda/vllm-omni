@@ -10,6 +10,8 @@ from typing import Any
 import aiohttp
 from tqdm import tqdm
 
+from vllm_omni.trace_logging import write_trace_event
+
 
 @dataclass
 class RequestFuncInput:
@@ -27,6 +29,8 @@ class RequestFuncInput:
     extra_body: dict[str, Any] = field(default_factory=dict)
     image_paths: list[str] | None = None
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    trace_log_file: str | None = None
+    trace_label: str | None = None
 
 
 @dataclass
@@ -213,8 +217,25 @@ async def async_request_v1_videos(
 ) -> RequestFuncOutput:
     output = RequestFuncOutput()
     output.start_time = time.perf_counter()
+    trace_node = input.trace_label or "client"
+    trace_input = {
+        "api_url": input.api_url,
+        "width": input.width,
+        "height": input.height,
+        "num_frames": input.num_frames,
+        "num_inference_steps": input.num_inference_steps,
+        "fps": input.fps,
+    }
+    write_trace_event(
+        input.trace_log_file,
+        "client_arrive",
+        node=trace_node,
+        request_id=input.request_id,
+        **trace_input,
+    )
 
     files = dict(input.extra_body)
+    files.setdefault("request_id", input.request_id)
     if input.prompt:
         files.setdefault("prompt", input.prompt)
     if input.width and input.height:
@@ -260,6 +281,14 @@ async def async_request_v1_videos(
                     output.error = "API response missing job 'id' or 'status' field."
                     output.success = False
                     return output
+                write_trace_event(
+                    input.trace_log_file,
+                    "client_job_accepted",
+                    node=trace_node,
+                    request_id=input.request_id,
+                    video_id=job_id,
+                    job_status=job_status,
+                )
             else:
                 output.error = f"HTTP {response.status}: {await response.text()}"
                 output.success = False
@@ -324,13 +353,25 @@ async def async_request_v1_videos(
             except Exception as e:
                 print(f"Failed to clean up video job {job_id}: {e}")
 
-    output.latency = time.perf_counter() - output.start_time
+        output.latency = time.perf_counter() - output.start_time
+        write_trace_event(
+            input.trace_log_file,
+            "client_finish",
+            node=trace_node,
+            request_id=input.request_id,
+            video_id=job_id,
+            success=output.success,
+            latency_s=output.latency,
+            backend_inference_time_s=poll_json.get("inference_time_s"),
+            error=output.error or None,
+            **trace_input,
+        )
+        if pbar:
+            pbar.update(1)
 
     if output.success and input.slo_ms is not None:
         output.slo_achieved = (output.latency * 1000.0) <= float(input.slo_ms)
 
-    if pbar:
-        pbar.update(1)
     return output
 
 

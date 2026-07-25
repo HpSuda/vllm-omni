@@ -33,14 +33,7 @@ from vllm_omni.diffusion.super_p95 import (
     parse_super_p95_load_headers,
 )
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
-
-try:
-    from vllm_omni.trace_logging import write_trace_event
-except ModuleNotFoundError:
-
-    def write_trace_event(*args, **kwargs):
-        return None
-
+from vllm_omni.trace_logging import write_trace_event
 
 logger = init_logger(__name__)
 
@@ -365,6 +358,8 @@ class SuperP95Dispatcher:
         self._backend_launcher = backend_launcher
         self._video_backend_by_id: dict[str, int] = {}
         self._video_decision_by_id: dict[str, DispatchDecision] = {}
+        self._video_request_id_by_id: dict[str, str] = {}
+        self._video_received_at_s_by_id: dict[str, float] = {}
         backend_batch2_flag = (
             backend_launcher.backend_env.get("SUPER_P95_QWEN_SMALL_BATCH2") if backend_launcher is not None else None
         )
@@ -391,9 +386,17 @@ class SuperP95Dispatcher:
             await asyncio.to_thread(self._backend_launcher.stop_all)
 
     async def dispatch_json(self, path: str, body: dict[str, Any], incoming_headers: dict[str, str]) -> Response:
+        request_id = str(body.get("request_id", ""))
+        write_trace_event(
+            self.trace_log_file,
+            "dispatcher_arrive",
+            node="dispatcher",
+            request_id=request_id or None,
+            path=path,
+            **_trace_request_fields(path, body),
+        )
         decision = await self._choose_backend(path, body)
         backend = self.backends[decision.backend_index]
-        request_id = str(body.get("request_id", ""))
         write_trace_event(
             self.trace_log_file,
             "dispatch",
@@ -410,6 +413,9 @@ class SuperP95Dispatcher:
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
             central_wait_s=decision.central_wait_s,
+            queue_class="tail" if decision.is_sacrificial else "normal",
+            service_time_estimator=self.service_time_estimator_name,
+            **_trace_request_fields(path, body),
         )
         headers = self._build_forward_headers(incoming_headers, decision)
         assert self._client is not None
@@ -433,9 +439,18 @@ class SuperP95Dispatcher:
 
     async def dispatch_form(self, path: str, form: FormData, incoming_headers: dict[str, str]) -> Response:
         body = _form_to_estimation_dict(form)
+        request_received_at_s = time.perf_counter()
+        request_id = str(body.get("request_id", ""))
+        write_trace_event(
+            self.trace_log_file,
+            "dispatcher_arrive",
+            node="dispatcher",
+            request_id=request_id or None,
+            path=path,
+            **_trace_request_fields(path, body),
+        )
         decision = await self._choose_backend(path, body)
         backend = self.backends[decision.backend_index]
-        request_id = str(body.get("request_id", ""))
         write_trace_event(
             self.trace_log_file,
             "dispatch",
@@ -452,6 +467,9 @@ class SuperP95Dispatcher:
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
             central_wait_s=decision.central_wait_s,
+            queue_class="tail" if decision.is_sacrificial else "normal",
+            service_time_estimator=self.service_time_estimator_name,
+            **_trace_request_fields(path, body),
         )
         headers = self._build_forward_headers(incoming_headers, decision)
         headers.pop("content-type", None)
@@ -480,18 +498,62 @@ class SuperP95Dispatcher:
             response = await self._client.post(
                 f"{backend.base_url}{path}", data=data, files=files or None, headers=headers
             )
-        except Exception:
+        except Exception as exc:
             elapsed_s = time.perf_counter() - start_time
             await self._mark_failed_response(decision, elapsed_s)
+            write_trace_event(
+                self.trace_log_file,
+                "dispatcher_failed",
+                node="dispatcher",
+                request_id=request_id or None,
+                backend=backend.name,
+                queue_class="tail" if decision.is_sacrificial else "normal",
+                estimated_service_s=decision.estimated_service_s,
+                central_wait_s=decision.central_wait_s,
+                dispatcher_e2e_s=time.perf_counter() - request_received_at_s,
+                error=repr(exc),
+            )
             raise
 
         elapsed_s = time.perf_counter() - start_time
         if path == "/v1/videos" and response.status_code < 400:
-            remembered = self._remember_video_backend(path, response, decision)
+            remembered = self._remember_video_backend(
+                path,
+                response,
+                decision,
+                request_id=request_id,
+                request_received_at_s=request_received_at_s,
+            )
             if not remembered:
                 await self._apply_response_feedback(decision, response.headers, elapsed_s)
+                write_trace_event(
+                    self.trace_log_file,
+                    "dispatcher_failed",
+                    node="dispatcher",
+                    request_id=request_id or None,
+                    backend=backend.name,
+                    queue_class="tail" if decision.is_sacrificial else "normal",
+                    estimated_service_s=decision.estimated_service_s,
+                    central_wait_s=decision.central_wait_s,
+                    dispatcher_e2e_s=time.perf_counter() - request_received_at_s,
+                    error="Backend response did not contain a video job id.",
+                )
         else:
             await self._apply_response_feedback(decision, response.headers, elapsed_s)
+            if response.status_code >= 400:
+                write_trace_event(
+                    self.trace_log_file,
+                    "dispatcher_failed",
+                    node="dispatcher",
+                    request_id=request_id or None,
+                    backend=backend.name,
+                    queue_class="tail" if decision.is_sacrificial else "normal",
+                    estimated_service_s=decision.estimated_service_s,
+                    central_wait_s=decision.central_wait_s,
+                    dispatcher_e2e_s=time.perf_counter() - request_received_at_s,
+                    status_code=response.status_code,
+                    error=response.text,
+                )
         return Response(
             content=response.content,
             status_code=response.status_code,
@@ -533,6 +595,9 @@ class SuperP95Dispatcher:
         path: str,
         response: httpx.Response,
         decision: DispatchDecision,
+        *,
+        request_id: str,
+        request_received_at_s: float,
     ) -> bool:
         if path != "/v1/videos" or response.status_code >= 400:
             return False
@@ -544,6 +609,19 @@ class SuperP95Dispatcher:
         if isinstance(video_id, str) and video_id:
             self._video_backend_by_id[video_id] = decision.backend_index
             self._video_decision_by_id[video_id] = decision
+            self._video_request_id_by_id[video_id] = request_id
+            self._video_received_at_s_by_id[video_id] = request_received_at_s
+            write_trace_event(
+                self.trace_log_file,
+                "dispatcher_job_accepted",
+                node="dispatcher",
+                request_id=request_id or None,
+                video_id=video_id,
+                backend=self.backends[decision.backend_index].name,
+                queue_class="tail" if decision.is_sacrificial else "normal",
+                estimated_service_s=decision.estimated_service_s,
+                central_wait_s=decision.central_wait_s,
+            )
             return True
         return False
 
@@ -559,17 +637,47 @@ class SuperP95Dispatcher:
             return
         status = payload.get("status") if isinstance(payload, dict) else None
         if status in {"completed", "failed", "cancelled", "canceled"}:
-            await self._release_video_load(video_id)
+            await self._release_video_load(
+                video_id,
+                status=str(status),
+                inference_time_s=_parse_float(payload.get("inference_time_s")),
+                error=payload.get("error"),
+            )
 
-    async def _release_video_load(self, video_id: str) -> None:
+    async def _release_video_load(
+        self,
+        video_id: str,
+        *,
+        status: str = "cancelled",
+        inference_time_s: float | None = None,
+        error: Any = None,
+    ) -> None:
         decision = self._video_decision_by_id.pop(video_id, None)
         if decision is None:
             return
+        request_id = self._video_request_id_by_id.pop(video_id, "")
+        received_at_s = self._video_received_at_s_by_id.pop(video_id, None)
         async with self._lock:
             backend = self.backends[decision.backend_index]
             self._dec_inflight(backend, decision.is_sacrificial)
             self._fallback_remove_estimated_load(backend, decision)
             self._assign_waiting_normals_locked()
+        terminal_event = "dispatcher_complete" if status == "completed" else "dispatcher_failed"
+        write_trace_event(
+            self.trace_log_file,
+            terminal_event,
+            node="dispatcher",
+            request_id=request_id or None,
+            video_id=video_id,
+            backend=backend.name,
+            status=status,
+            queue_class="tail" if decision.is_sacrificial else "normal",
+            estimated_service_s=decision.estimated_service_s,
+            central_wait_s=decision.central_wait_s,
+            backend_inference_time_s=inference_time_s,
+            dispatcher_e2e_s=(time.perf_counter() - received_at_s if received_at_s is not None else None),
+            error=error,
+        )
 
     def _backend_index_for_proxy_path(self, path: str) -> int:
         video_id = self._video_id_from_proxy_path(path)
@@ -611,6 +719,8 @@ class SuperP95Dispatcher:
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
                 "service_time_estimator": self.service_time_estimator_name,
+                "request_trace_enabled": self.trace_log_file is not None,
+                "trace_log_file": self.trace_log_file,
                 "central_queue_depth": central_queue_depth,
                 "central_queue_max_depth": central_queue_max_depth,
                 "central_pull_dispatches": central_pull_dispatches,
@@ -673,7 +783,11 @@ class SuperP95Dispatcher:
                     request_id=str(body.get("request_id", "")) or None,
                     arrival_counter=arrival_counter,
                     estimated_service_s=estimated_service_s,
+                    estimated_service_s_by_backend=estimated_service_s_by_backend,
                     queue_depth=len(self._pending_normal_dispatches),
+                    queue_class="normal",
+                    service_time_estimator=self.service_time_estimator_name,
+                    **_trace_request_fields(path, body),
                 )
                 self._assign_waiting_normals_locked()
             else:
@@ -1056,6 +1170,49 @@ def _parse_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _parse_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _trace_request_fields(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    """Return scheduling-visible input fields for a trace event."""
+
+    width = _parse_int(body.get("width"))
+    height = _parse_int(body.get("height"))
+    size_width, size_height = _parse_size(body.get("size"))
+    width = width or size_width
+    height = height or size_height
+    steps = _parse_int(body.get("num_inference_steps"))
+    fps = _parse_int(body.get("fps"))
+    frames = _parse_int(body.get("num_frames"))
+    if frames is None:
+        seconds = _parse_int(body.get("seconds"))
+        if seconds is not None:
+            frames = seconds * (fps or 24)
+
+    fields: dict[str, Any] = {
+        "width": width,
+        "height": height,
+        "num_frames": frames,
+        "num_inference_steps": steps,
+        "fps": fps,
+    }
+    if path == "/v1/videos":
+        workload_key = (width, height, steps, frames)
+        workload_class = {
+            (854, 480, 3, 80): "short",
+            (854, 480, 4, 120): "medium",
+            (1280, 720, 6, 80): "long",
+        }.get(workload_key, "custom")
+        fields["workload_class"] = workload_class
+    return fields
 
 
 def _form_to_estimation_dict(form: FormData) -> dict[str, Any]:
