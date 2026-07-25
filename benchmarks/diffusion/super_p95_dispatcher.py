@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import math
 import os
 import shlex
 import subprocess
@@ -39,6 +40,10 @@ logger = init_logger(__name__)
 
 # Keep dispatcher-side routing aligned with backend batch2 eligibility.
 _QWEN_SMALL_IMAGE_MAX_PIXELS = 768 * 768
+_CENTRAL_PULL_POLICIES = {
+    "central_pull_max_risk",
+    "central_pull_cost_damped_risk",
+}
 
 
 @dataclass
@@ -78,6 +83,8 @@ class DispatchDecision:
     quota_added: int
     global_max_service_s: float
     central_wait_s: float = 0.0
+    central_risk_score: float | None = None
+    central_risk_beta: float | None = None
     batch_key: tuple[Any, ...] | None = None
 
 
@@ -312,6 +319,7 @@ class SuperP95Dispatcher:
         request_timeout_s: float,
         long_request_ratio: float = 1.5,
         normal_routing_policy: str = "assigned_load",
+        central_pull_risk_beta: float = 0.5,
         service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
@@ -334,9 +342,14 @@ class SuperP95Dispatcher:
         self.sacrificial_load_factor = sacrificial_load_factor
         self.request_timeout_s = request_timeout_s
         self.trace_log_file = trace_log_file
-        if normal_routing_policy not in {"assigned_load", "central_pull_max_risk"}:
-            raise ValueError("normal_routing_policy must be 'assigned_load' or 'central_pull_max_risk'")
+        valid_normal_routing_policies = {"assigned_load", *_CENTRAL_PULL_POLICIES}
+        if normal_routing_policy not in valid_normal_routing_policies:
+            choices = ", ".join(sorted(valid_normal_routing_policies))
+            raise ValueError(f"normal_routing_policy must be one of: {choices}")
+        if not math.isfinite(central_pull_risk_beta) or central_pull_risk_beta < 0.0:
+            raise ValueError("central_pull_risk_beta must be a finite non-negative number")
         self.normal_routing_policy = normal_routing_policy
+        self.central_pull_risk_beta = central_pull_risk_beta
         self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
@@ -413,6 +426,9 @@ class SuperP95Dispatcher:
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
             central_wait_s=decision.central_wait_s,
+            central_risk_score=decision.central_risk_score,
+            central_risk_beta=decision.central_risk_beta,
+            normal_routing_policy=self.normal_routing_policy,
             queue_class="tail" if decision.is_sacrificial else "normal",
             service_time_estimator=self.service_time_estimator_name,
             **_trace_request_fields(path, body),
@@ -467,6 +483,9 @@ class SuperP95Dispatcher:
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
             central_wait_s=decision.central_wait_s,
+            central_risk_score=decision.central_risk_score,
+            central_risk_beta=decision.central_risk_beta,
+            normal_routing_policy=self.normal_routing_policy,
             queue_class="tail" if decision.is_sacrificial else "normal",
             service_time_estimator=self.service_time_estimator_name,
             **_trace_request_fields(path, body),
@@ -718,6 +737,7 @@ class SuperP95Dispatcher:
                 "status": "healthy" if overall_healthy else "degraded",
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
+                "central_pull_risk_beta": self.central_pull_risk_beta,
                 "service_time_estimator": self.service_time_estimator_name,
                 "request_trace_enabled": self.trace_log_file is not None,
                 "trace_log_file": self.trace_log_file,
@@ -758,7 +778,7 @@ class SuperP95Dispatcher:
                 self.quota_credits_consumed += 1
 
             batch_key = None if is_sacrificial else self._batch_routing_key(path, body)
-            if not is_sacrificial and self.normal_routing_policy == "central_pull_max_risk":
+            if not is_sacrificial and self.normal_routing_policy in _CENTRAL_PULL_POLICIES:
                 future = asyncio.get_running_loop().create_future()
                 pending = PendingNormalDispatch(
                     arrival_counter=arrival_counter,
@@ -786,6 +806,8 @@ class SuperP95Dispatcher:
                     estimated_service_s_by_backend=estimated_service_s_by_backend,
                     queue_depth=len(self._pending_normal_dispatches),
                     queue_class="normal",
+                    normal_routing_policy=self.normal_routing_policy,
+                    central_risk_beta=self._central_pull_beta(),
                     service_time_estimator=self.service_time_estimator_name,
                     **_trace_request_fields(path, body),
                 )
@@ -828,6 +850,8 @@ class SuperP95Dispatcher:
         global_max_service_s: float,
         batch_key: tuple[Any, ...] | None,
         central_wait_s: float,
+        central_risk_score: float | None = None,
+        central_risk_beta: float | None = None,
         backend_index: int | None = None,
     ) -> DispatchDecision:
         if backend_index is None:
@@ -874,6 +898,8 @@ class SuperP95Dispatcher:
             quota_added=quota_added,
             global_max_service_s=global_max_service_s,
             central_wait_s=central_wait_s,
+            central_risk_score=central_risk_score,
+            central_risk_beta=central_risk_beta,
             batch_key=batch_key,
         )
 
@@ -895,10 +921,15 @@ class SuperP95Dispatcher:
                 ),
             )
             now_s = time.perf_counter()
+            risk_beta = self._central_pull_beta()
+
+            def risk_score(item: PendingNormalDispatch) -> float:
+                return now_s - item.arrival_time_s + risk_beta * item.estimated_service_s_by_backend[backend_index]
+
             selected = max(
                 self._pending_normal_dispatches,
                 key=lambda item: (
-                    now_s - item.arrival_time_s + item.estimated_service_s_by_backend[backend_index],
+                    risk_score(item),
                     -item.arrival_counter,
                 ),
             )
@@ -917,10 +948,17 @@ class SuperP95Dispatcher:
                 global_max_service_s=selected.global_max_service_s,
                 batch_key=selected.batch_key,
                 central_wait_s=central_wait_s,
+                central_risk_score=risk_score(selected),
+                central_risk_beta=risk_beta,
                 backend_index=backend_index,
             )
             if not selected.future.done():
                 selected.future.set_result(decision)
+
+    def _central_pull_beta(self) -> float:
+        if self.normal_routing_policy == "central_pull_max_risk":
+            return 1.0
+        return self.central_pull_risk_beta
 
     def _select_backend_index(self, batch_key: tuple[Any, ...] | None) -> int:
         if batch_key is not None:
@@ -1370,12 +1408,22 @@ def build_arg_parser(
     parser.add_argument("--sacrificial-load-factor", type=float, default=0.1)
     parser.add_argument(
         "--normal-routing-policy",
-        choices=("assigned_load", "central_pull_max_risk"),
+        choices=("assigned_load", "central_pull_max_risk", "central_pull_cost_damped_risk"),
         default="assigned_load",
         help=(
-            "Normal request binding policy. central_pull_max_risk keeps "
-            "unstarted Normal requests in an online global queue and binds "
-            "the maximum (wait + estimate) risk when backend capacity opens."
+            "Normal request binding policy. Central-pull policies keep unstarted "
+            "Normal requests in an online global queue. max_risk selects the "
+            "maximum (wait + estimate); cost_damped_risk uses "
+            "(wait + beta * estimate)."
+        ),
+    )
+    parser.add_argument(
+        "--central-pull-risk-beta",
+        type=float,
+        default=0.5,
+        help=(
+            "Estimated-service weight for central_pull_cost_damped_risk. "
+            "The Wan2.2 P95 candidate uses 0.5; central_pull_max_risk always uses 1.0."
         ),
     )
     parser.add_argument(
@@ -1528,6 +1576,7 @@ def build_dispatcher_from_args(
             "normal_routing_policy",
             "assigned_load",
         ),
+        central_pull_risk_beta=getattr(args, "central_pull_risk_beta", 0.5),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,
         **(dispatcher_kwargs or {}),

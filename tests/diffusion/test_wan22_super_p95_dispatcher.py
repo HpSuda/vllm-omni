@@ -18,6 +18,7 @@ pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
         ("production", 119.71),
         ("2xusp4", 188.720),
         ("4xusp2", 357.126),
+        ("8xusp1_inferred", 612.299),
     ],
 )
 def test_wan22_estimator_uses_topology_profile(profile: str, expected: float) -> None:

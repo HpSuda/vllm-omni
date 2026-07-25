@@ -61,6 +61,19 @@ WAN22_ESTIMATOR_PROFILES: dict[str, dict[str, dict[Wan22WorkloadKey, float]]] = 
             _LONG_KEY: 357.126,
         },
     },
+    # USP1 has no isolated single-request measurements yet. These anchors are
+    # the per-size median of three topology projections (analytic USP scaling,
+    # an A+B/USP residual fit, and doubled USP2 residual time), each calibrated
+    # with one shared factor against the existing 8xUSP1/50 baseline P95. Keep
+    # "inferred" in the profile name so trace output cannot be mistaken for a
+    # directly measured service profile.
+    "8xusp1_inferred": {
+        "910B3": {
+            _SHORT_KEY: 110.724,
+            _MEDIUM_KEY: 219.548,
+            _LONG_KEY: 612.299,
+        },
+    },
 }
 
 

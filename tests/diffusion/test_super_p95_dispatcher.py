@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+import benchmarks.diffusion.super_p95_dispatcher as dispatcher_module
 from benchmarks.diffusion.super_p95_dispatcher import SuperP95Dispatcher
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.diffusion.super_p95 import estimate_service_time_s
@@ -227,6 +228,75 @@ def test_central_pull_selects_max_online_wait_plus_estimate_risk() -> None:
 
     assert selected_long.estimated_service_s > selected_short.estimated_service_s
     assert selected_long.arrival_counter > selected_short.arrival_counter
+
+
+def test_cost_damped_risk_balances_age_against_estimated_service(monkeypatch) -> None:
+    now_s = 0.0
+    monkeypatch.setattr(dispatcher_module.time, "perf_counter", lambda: now_s)
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy="central_pull_cost_damped_risk",
+        central_pull_risk_beta=0.5,
+    )
+    short = {
+        "width": "854",
+        "height": "480",
+        "num_inference_steps": "3",
+        "num_frames": "80",
+    }
+    long = {
+        "width": "1280",
+        "height": "720",
+        "num_inference_steps": "6",
+        "num_frames": "80",
+    }
+
+    async def _run():
+        nonlocal now_s
+        incumbent = await dispatcher._choose_backend("/v1/videos", short)
+        older_short = asyncio.create_task(dispatcher._choose_backend("/v1/videos", short))
+        await asyncio.sleep(0)
+
+        now_s = 50.0
+        newer_long = asyncio.create_task(dispatcher._choose_backend("/v1/videos", long))
+        await asyncio.sleep(0)
+        await dispatcher._mark_failed_response(incumbent, elapsed_s=1.0)
+        await asyncio.sleep(0)
+
+        assert older_short.done()
+        assert not newer_long.done()
+        selected_short = await older_short
+        await dispatcher._mark_failed_response(selected_short, elapsed_s=1.0)
+        selected_long = await newer_long
+        return selected_short, selected_long
+
+    selected_short, selected_long = asyncio.run(_run())
+
+    assert selected_short.arrival_counter < selected_long.arrival_counter
+    assert selected_short.central_risk_beta == pytest.approx(0.5)
+    assert selected_short.central_risk_score == pytest.approx(50.0 + 0.5 * selected_short.estimated_service_s)
+
+
+@pytest.mark.parametrize("beta", [-0.1, float("inf"), float("nan")])
+def test_cost_damped_risk_rejects_invalid_beta(beta: float) -> None:
+    with pytest.raises(ValueError, match="central_pull_risk_beta"):
+        SuperP95Dispatcher(
+            backend_urls=["http://backend-0"],
+            backend_hardware_profiles=None,
+            quota_every=20,
+            quota_amount=1,
+            threshold_ratio=0.8,
+            sacrificial_load_factor=0.1,
+            request_timeout_s=30.0,
+            normal_routing_policy="central_pull_cost_damped_risk",
+            central_pull_risk_beta=beta,
+        )
 
 
 def test_central_pull_still_dispatches_tail_without_normal_capacity() -> None:
