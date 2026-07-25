@@ -33,11 +33,14 @@ from vllm_omni.diffusion.super_p95 import (
     parse_super_p95_load_headers,
 )
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
+
 try:
     from vllm_omni.trace_logging import write_trace_event
 except ModuleNotFoundError:
+
     def write_trace_event(*args, **kwargs):
         return None
+
 
 logger = init_logger(__name__)
 
@@ -81,7 +84,21 @@ class DispatchDecision:
     credits_after: int
     quota_added: int
     global_max_service_s: float
+    central_wait_s: float = 0.0
     batch_key: tuple[Any, ...] | None = None
+
+
+@dataclass
+class PendingNormalDispatch:
+    arrival_counter: int
+    arrival_time_s: float
+    estimated_service_s_by_backend: tuple[float, ...]
+    credits_before: int
+    credits_after: int
+    quota_added: int
+    global_max_service_s: float
+    batch_key: tuple[Any, ...] | None
+    future: asyncio.Future[DispatchDecision]
 
 
 @dataclass(frozen=True)
@@ -245,7 +262,8 @@ class ManagedBackendLauncher:
                 raise RuntimeError(f"super_p95 backend exited before becoming healthy: {details}")
 
             ready_ports = [
-                port for port, managed in pending.items()
+                port
+                for port, managed in pending.items()
                 if self._log_indicates_ready(managed) or self._is_healthy(managed.spec.base_url)
             ]
             for port in ready_ports:
@@ -287,6 +305,7 @@ class ManagedBackendLauncher:
         except (urllib_error.URLError, TimeoutError, ValueError):
             return False
 
+
 class SuperP95Dispatcher:
     def __init__(
         self,
@@ -299,6 +318,7 @@ class SuperP95Dispatcher:
         sacrificial_load_factor: float,
         request_timeout_s: float,
         long_request_ratio: float = 1.5,
+        normal_routing_policy: str = "assigned_load",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
     ) -> None:
@@ -320,6 +340,9 @@ class SuperP95Dispatcher:
         self.sacrificial_load_factor = sacrificial_load_factor
         self.request_timeout_s = request_timeout_s
         self.trace_log_file = trace_log_file
+        if normal_routing_policy not in {"assigned_load", "central_pull_max_risk"}:
+            raise ValueError("normal_routing_policy must be 'assigned_load' or 'central_pull_max_risk'")
+        self.normal_routing_policy = normal_routing_policy
 
         self._lock = asyncio.Lock()
         self.arrival_counter = 0
@@ -332,14 +355,16 @@ class SuperP95Dispatcher:
         self.quota_refills = 0
         self.quota_credits_added = 0
         self.quota_credits_consumed = 0
+        self.central_pull_dispatches = 0
+        self.central_queue_max_depth = 0
+        self.central_wait_total_s = 0.0
+        self._pending_normal_dispatches: list[PendingNormalDispatch] = []
         self._client: httpx.AsyncClient | None = None
         self._backend_launcher = backend_launcher
         self._video_backend_by_id: dict[str, int] = {}
         self._video_decision_by_id: dict[str, DispatchDecision] = {}
         backend_batch2_flag = (
-            backend_launcher.backend_env.get("SUPER_P95_QWEN_SMALL_BATCH2")
-            if backend_launcher is not None
-            else None
+            backend_launcher.backend_env.get("SUPER_P95_QWEN_SMALL_BATCH2") if backend_launcher is not None else None
         )
         self._qwen_small_batch2_enabled = self._env_flag_enabled(
             os.environ.get("SUPER_P95_QWEN_SMALL_BATCH2")
@@ -352,6 +377,11 @@ class SuperP95Dispatcher:
         self._client = httpx.AsyncClient(timeout=timeout, trust_env=False)
 
     async def shutdown(self) -> None:
+        async with self._lock:
+            for pending in self._pending_normal_dispatches:
+                if not pending.future.done():
+                    pending.future.set_exception(RuntimeError("super_p95 dispatcher is shutting down"))
+            self._pending_normal_dispatches.clear()
         if self._client is not None:
             await self._client.aclose()
             self._client = None
@@ -377,6 +407,7 @@ class SuperP95Dispatcher:
             credits_after=decision.credits_after,
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
+            central_wait_s=decision.central_wait_s,
         )
         headers = self._build_forward_headers(incoming_headers, decision)
         assert self._client is not None
@@ -418,6 +449,7 @@ class SuperP95Dispatcher:
             credits_after=decision.credits_after,
             quota_added=decision.quota_added,
             global_max_service_s=decision.global_max_service_s,
+            central_wait_s=decision.central_wait_s,
         )
         headers = self._build_forward_headers(incoming_headers, decision)
         headers.pop("content-type", None)
@@ -443,7 +475,9 @@ class SuperP95Dispatcher:
         assert self._client is not None
         start_time = time.perf_counter()
         try:
-            response = await self._client.post(f"{backend.base_url}{path}", data=data, files=files or None, headers=headers)
+            response = await self._client.post(
+                f"{backend.base_url}{path}", data=data, files=files or None, headers=headers
+            )
         except Exception:
             elapsed_s = time.perf_counter() - start_time
             await self._mark_failed_response(decision, elapsed_s)
@@ -533,6 +567,7 @@ class SuperP95Dispatcher:
             backend = self.backends[decision.backend_index]
             self._dec_inflight(backend, decision.is_sacrificial)
             self._fallback_remove_estimated_load(backend, decision)
+            self._assign_waiting_normals_locked()
 
     def _backend_index_for_proxy_path(self, path: str) -> int:
         video_id = self._video_id_from_proxy_path(path)
@@ -563,18 +598,32 @@ class SuperP95Dispatcher:
                 detail = str(exc)
             overall_healthy = overall_healthy and healthy
             statuses.append({"backend": backend.name, "url": backend.base_url, "healthy": healthy, "detail": detail})
+        async with self._lock:
+            central_queue_depth = len(self._pending_normal_dispatches)
+            central_queue_max_depth = self.central_queue_max_depth
+            central_pull_dispatches = self.central_pull_dispatches
         return JSONResponse(
             status_code=200 if overall_healthy else 503,
-            content={"status": "healthy" if overall_healthy else "degraded", "backends": statuses},
+            content={
+                "status": "healthy" if overall_healthy else "degraded",
+                "backends": statuses,
+                "normal_routing_policy": self.normal_routing_policy,
+                "central_queue_depth": central_queue_depth,
+                "central_queue_max_depth": central_queue_max_depth,
+                "central_pull_dispatches": central_pull_dispatches,
+            },
         )
 
     async def _choose_backend(self, path: str, body: dict[str, Any]) -> DispatchDecision:
+        arrival_time_s = time.perf_counter()
         estimated_service_s_by_backend = [
             self._estimate_service_s(path, body, backend.hardware_profile) for backend in self.backends
         ]
         estimated_service_s = min(estimated_service_s_by_backend)
+        pending: PendingNormalDispatch | None = None
         async with self._lock:
             self.arrival_counter += 1
+            arrival_counter = self.arrival_counter
             credits_before = self.credits
             quota_added = 0
             if self.arrival_counter % self.quota_every == 0:
@@ -588,68 +637,178 @@ class SuperP95Dispatcher:
             else:
                 self.global_min_service_s = min(self.global_min_service_s, estimated_service_s)
             self.global_max_service_s = max(self.global_max_service_s, estimated_service_s)
-            is_sacrificial = (
-                self.credits > 0
-                and self._is_sacrificial_candidate(estimated_service_s)
-            )
+            is_sacrificial = self.credits > 0 and self._is_sacrificial_candidate(estimated_service_s)
             if is_sacrificial:
                 self.credits -= 1
                 self.tail_admitted_count += 1
                 self.sacrificial_dispatches += 1
                 self.quota_credits_consumed += 1
-            else:
-                self.normal_dispatches += 1
 
             batch_key = None if is_sacrificial else self._batch_routing_key(path, body)
-            backend_index = self._select_backend_index(batch_key)
-            backend = self.backends[backend_index]
-            selected_estimated_service_s = estimated_service_s_by_backend[backend_index]
-            if is_sacrificial:
-                backend.sacrificial_load_s += selected_estimated_service_s
-                backend.inflight_sacrificial_requests += 1
+            if not is_sacrificial and self.normal_routing_policy == "central_pull_max_risk":
+                future = asyncio.get_running_loop().create_future()
+                pending = PendingNormalDispatch(
+                    arrival_counter=arrival_counter,
+                    arrival_time_s=arrival_time_s,
+                    estimated_service_s_by_backend=tuple(estimated_service_s_by_backend),
+                    credits_before=credits_before,
+                    credits_after=self.credits,
+                    quota_added=quota_added,
+                    global_max_service_s=self.global_max_service_s,
+                    batch_key=batch_key,
+                    future=future,
+                )
+                self._pending_normal_dispatches.append(pending)
+                self.central_queue_max_depth = max(
+                    self.central_queue_max_depth,
+                    len(self._pending_normal_dispatches),
+                )
+                write_trace_event(
+                    self.trace_log_file,
+                    "central_enqueue",
+                    node="dispatcher",
+                    request_id=str(body.get("request_id", "")) or None,
+                    arrival_counter=arrival_counter,
+                    estimated_service_s=estimated_service_s,
+                    queue_depth=len(self._pending_normal_dispatches),
+                )
+                self._assign_waiting_normals_locked()
             else:
-                backend.normal_load_s += selected_estimated_service_s
-                backend.inflight_normal_requests += 1
-                if batch_key is not None:
-                    backend.batchable_counts[batch_key] = backend.batchable_counts.get(batch_key, 0) + 1
-            logger.info(
-                "super_p95 dispatch arrival=%d path=%s backend=%s sacrificial=%s "
-                "quota_added=%d credits_before=%d credits_after=%d "
-                "estimated_service_s=%.4f global_max_service_s=%.4f "
-                "batch_key=%s backend_batchable_count=%d "
-                "normal_dispatches=%d sacrificial_dispatches=%d",
-                self.arrival_counter,
-                path,
-                backend.name,
-                is_sacrificial,
-                quota_added,
-                credits_before,
-                self.credits,
-                selected_estimated_service_s,
-                self.global_max_service_s,
-                batch_key,
-                backend.batchable_counts.get(batch_key, 0) if batch_key is not None else 0,
-                self.normal_dispatches,
-                self.sacrificial_dispatches,
+                if not is_sacrificial:
+                    self.normal_dispatches += 1
+                return self._bind_request_locked(
+                    estimated_service_s_by_backend=estimated_service_s_by_backend,
+                    is_sacrificial=is_sacrificial,
+                    arrival_counter=arrival_counter,
+                    credits_before=credits_before,
+                    credits_after=self.credits,
+                    quota_added=quota_added,
+                    global_max_service_s=self.global_max_service_s,
+                    batch_key=batch_key,
+                    central_wait_s=0.0,
+                )
+
+        assert pending is not None
+        try:
+            return await pending.future
+        except BaseException:
+            async with self._lock:
+                with suppress(ValueError):
+                    self._pending_normal_dispatches.remove(pending)
+                if not pending.future.done():
+                    pending.future.cancel()
+            raise
+
+    def _bind_request_locked(
+        self,
+        *,
+        estimated_service_s_by_backend: list[float] | tuple[float, ...],
+        is_sacrificial: bool,
+        arrival_counter: int,
+        credits_before: int,
+        credits_after: int,
+        quota_added: int,
+        global_max_service_s: float,
+        batch_key: tuple[Any, ...] | None,
+        central_wait_s: float,
+        backend_index: int | None = None,
+    ) -> DispatchDecision:
+        if backend_index is None:
+            backend_index = self._select_backend_index(batch_key)
+        backend = self.backends[backend_index]
+        selected_estimated_service_s = estimated_service_s_by_backend[backend_index]
+        if is_sacrificial:
+            backend.sacrificial_load_s += selected_estimated_service_s
+            backend.inflight_sacrificial_requests += 1
+        else:
+            backend.normal_load_s += selected_estimated_service_s
+            backend.inflight_normal_requests += 1
+            if batch_key is not None:
+                backend.batchable_counts[batch_key] = backend.batchable_counts.get(batch_key, 0) + 1
+        logger.info(
+            "super_p95 dispatch arrival=%d backend=%s sacrificial=%s "
+            "quota_added=%d credits_before=%d credits_after=%d "
+            "estimated_service_s=%.4f global_max_service_s=%.4f "
+            "central_wait_s=%.4f central_queue_depth=%d "
+            "batch_key=%s backend_batchable_count=%d "
+            "normal_dispatches=%d sacrificial_dispatches=%d",
+            arrival_counter,
+            backend.name,
+            is_sacrificial,
+            quota_added,
+            credits_before,
+            credits_after,
+            selected_estimated_service_s,
+            global_max_service_s,
+            central_wait_s,
+            len(self._pending_normal_dispatches),
+            batch_key,
+            backend.batchable_counts.get(batch_key, 0) if batch_key is not None else 0,
+            self.normal_dispatches,
+            self.sacrificial_dispatches,
+        )
+        return DispatchDecision(
+            backend_index=backend_index,
+            estimated_service_s=selected_estimated_service_s,
+            is_sacrificial=is_sacrificial,
+            arrival_counter=arrival_counter,
+            credits_before=credits_before,
+            credits_after=credits_after,
+            quota_added=quota_added,
+            global_max_service_s=global_max_service_s,
+            central_wait_s=central_wait_s,
+            batch_key=batch_key,
+        )
+
+    def _assign_waiting_normals_locked(self) -> None:
+        while self._pending_normal_dispatches:
+            available_backend_indices = [
+                idx for idx, backend in enumerate(self.backends) if backend.inflight_normal_requests == 0
+            ]
+            if not available_backend_indices:
+                return
+
+            backend_index = min(
+                available_backend_indices,
+                key=lambda idx: (
+                    self.backends[idx].inflight_sacrificial_requests > 0,
+                    self.backends[idx].sacrificial_load_s,
+                    self.backends[idx].latency_ema_s,
+                    self.backends[idx].name,
+                ),
             )
-            return DispatchDecision(
+            now_s = time.perf_counter()
+            selected = max(
+                self._pending_normal_dispatches,
+                key=lambda item: (
+                    now_s - item.arrival_time_s + item.estimated_service_s_by_backend[backend_index],
+                    -item.arrival_counter,
+                ),
+            )
+            self._pending_normal_dispatches.remove(selected)
+            central_wait_s = max(now_s - selected.arrival_time_s, 0.0)
+            self.central_pull_dispatches += 1
+            self.central_wait_total_s += central_wait_s
+            self.normal_dispatches += 1
+            decision = self._bind_request_locked(
+                estimated_service_s_by_backend=selected.estimated_service_s_by_backend,
+                is_sacrificial=False,
+                arrival_counter=selected.arrival_counter,
+                credits_before=selected.credits_before,
+                credits_after=selected.credits_after,
+                quota_added=selected.quota_added,
+                global_max_service_s=selected.global_max_service_s,
+                batch_key=selected.batch_key,
+                central_wait_s=central_wait_s,
                 backend_index=backend_index,
-                estimated_service_s=selected_estimated_service_s,
-                is_sacrificial=is_sacrificial,
-                arrival_counter=self.arrival_counter,
-                credits_before=credits_before,
-                credits_after=self.credits,
-                quota_added=quota_added,
-                global_max_service_s=self.global_max_service_s,
-                batch_key=batch_key,
             )
+            if not selected.future.done():
+                selected.future.set_result(decision)
 
     def _select_backend_index(self, batch_key: tuple[Any, ...] | None) -> int:
         if batch_key is not None:
             odd_candidates = [
-                idx
-                for idx, backend in enumerate(self.backends)
-                if backend.batchable_counts.get(batch_key, 0) % 2 == 1
+                idx for idx, backend in enumerate(self.backends) if backend.batchable_counts.get(batch_key, 0) % 2 == 1
             ]
             if odd_candidates:
                 return min(
@@ -676,8 +835,9 @@ class SuperP95Dispatcher:
             if authoritative is not None:
                 backend.normal_load_s = authoritative.normal_load_s
                 backend.sacrificial_load_s = authoritative.sacrificial_load_s
-                return
-            self._fallback_remove_estimated_load(backend, decision)
+            else:
+                self._fallback_remove_estimated_load(backend, decision)
+            self._assign_waiting_normals_locked()
 
     async def _mark_failed_response(self, decision: DispatchDecision, elapsed_s: float) -> None:
         async with self._lock:
@@ -686,6 +846,7 @@ class SuperP95Dispatcher:
             self._dec_inflight(backend, decision.is_sacrificial)
             self._dec_batchable_count(backend, decision.batch_key)
             self._fallback_remove_estimated_load(backend, decision)
+            self._assign_waiting_normals_locked()
 
     def _is_sacrificial_candidate(self, estimated_service_s: float) -> bool:
         if self.global_max_service_s <= 0.0:
@@ -1045,6 +1206,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sacrificial-load-factor", type=float, default=0.1)
     parser.add_argument(
+        "--normal-routing-policy",
+        choices=("assigned_load", "central_pull_max_risk"),
+        default="assigned_load",
+        help=(
+            "Normal request binding policy. central_pull_max_risk keeps "
+            "unstarted Normal requests in an online global queue and binds "
+            "the maximum (wait + estimate) risk when backend capacity opens."
+        ),
+    )
+    parser.add_argument(
         "--request-timeout-s",
         type=float,
         default=0.0,
@@ -1180,6 +1351,11 @@ def build_dispatcher_from_args(args: argparse.Namespace) -> SuperP95Dispatcher:
         long_request_ratio=getattr(args, "long_request_ratio", 1.5),
         sacrificial_load_factor=args.sacrificial_load_factor,
         request_timeout_s=args.request_timeout_s,
+        normal_routing_policy=getattr(
+            args,
+            "normal_routing_policy",
+            "assigned_load",
+        ),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,
     )
