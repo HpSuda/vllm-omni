@@ -1,0 +1,87 @@
+version: 1
+name: wan22-online-credit-holdout
+seed: 1762
+runs: 400
+baseline: M8 All-Normal
+
+# The same online classifier parameters are reused for 50 and 100 requests.
+# No variant receives workload.num_requests, a fixed release position, or an
+# end-of-cohort signal.
+scenarios:
+  - name: 50 requests / 0.05 rps / 2xUSP4
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-online
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+  - name: 50 requests / 0.05 rps / 4xUSP2
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-online
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+  - name: 100 requests / 0.03 rps / 2xUSP4
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-online
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+  - name: 100 requests / 0.03 rps / 4xUSP2
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-online
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+
+variants:
+  - name: M8 All-Normal
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      - policy.classifier.max_sacrificial=0
+      - service.hsdp.shard_size=8
+      - service.timing_model.execution.usp_degree=8
+      - topology.name=wan22-1xusp8-analytic
+      - topology.backend_count=1
+      - topology.devices_per_backend=8
+      - topology.speed_factors=[1.0]
+  - name: Prefix-Safe P95 Ledger + PECT-Remaining + Tail-Pack + FIFO
+    config: wan22_online_credit_pect_pack.yaml
+  - name: Smooth 4% Token Bucket + PECT-Remaining + Tail-Pack + FIFO
+    config: wan22_online_credit_pect_pack.yaml
+    overrides:
+      - policy.classifier.credit_mode=smooth_token_bucket
+      - policy.classifier.credit_capacity=1.0
+  - name: Prefix-Safe P95 Ledger + Tail-Pack + Max-Risk Central Pull + FIFO
+    config: wan22_online_credit_pect_pack.yaml
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+  - name: Smooth 4% Token Bucket + Tail-Pack + Max-Risk Central Pull + FIFO
+    config: wan22_online_credit_pect_pack.yaml
+    overrides:
+      - policy.classifier.credit_mode=smooth_token_bucket
+      - policy.classifier.credit_capacity=1.0
+      - policy.scheduler.global_protected_pull=true

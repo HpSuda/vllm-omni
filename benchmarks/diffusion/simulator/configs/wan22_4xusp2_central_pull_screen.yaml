@@ -1,0 +1,103 @@
+version: 1
+name: wan22-4xusp2-central-pull-screen
+seed: 10042
+runs: 100
+baseline: Current Quota-Tail + Assigned-Load + FIFO/LIFO
+
+scenarios:
+  - name: 50 requests at 0.05 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+  - name: 100 requests at 0.03 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+
+variants:
+  - name: Current Quota-Tail + Assigned-Load + FIFO/LIFO
+
+  - name: Central-Pull-Max-Risk + Zero-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.0
+
+  - name: Central-Pull-Max-Risk + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-Max-Risk + Two-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=2.0
+
+  - name: Central-Pull-FIFO + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=fifo
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-Arrival+Cost + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=arrival_plus_cost
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-HRRN + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=highest_response_ratio
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-Max-Risk + PECT-Tail-Spread
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+      - policy.router.tail_mode=spread
+
+  - name: Central-Pull-Max-Risk + PECT-Tail-Pack
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+      - policy.router.tail_mode=pack
+
+  - name: Central-Pull-Max-Risk + PECT-Tail-Sink
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+      - policy.router.tail_mode=sink
+
+  - name: Work-Stealing-Max-Risk + Zero-Cost
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=max_risk
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=0.0
+
+  - name: Work-Stealing-Max-Risk + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=max_risk
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=0.5
+
+  - name: Work-Stealing-Max-Risk + Two-Second-Cost
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=max_risk
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=2.0

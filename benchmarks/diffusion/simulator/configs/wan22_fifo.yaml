@@ -1,0 +1,65 @@
+version: 1
+name: wan22-2xusp4-fifo
+
+simulation:
+  seed: 42
+  runs: 20
+
+workload:
+  num_requests: 100
+  utilization: 0.9
+  request_rate: null
+  request_types:
+    - name: short
+      weight: 0.15
+      width: 854
+      height: 480
+      num_inference_steps: 3
+      num_frames: 80
+      nominal_service_s: 38.07
+      metadata: {fps: 16}
+    - name: medium
+      weight: 0.25
+      width: 854
+      height: 480
+      num_inference_steps: 4
+      num_frames: 120
+      nominal_service_s: 71.34
+      metadata: {fps: 24}
+    - name: long
+      weight: 0.60
+      width: 1280
+      height: 720
+      num_inference_steps: 6
+      num_frames: 80
+      nominal_service_s: 119.71
+      metadata: {fps: 16}
+
+service:
+  encode_fraction: 0.0
+  decode_fraction: 0.0
+  actual_jitter_sigma: 0.0
+  estimate_error_sigma: 0.0
+  preemption_cost_s: 0.0
+  actual_service_scale: 1.0
+  hsdp:
+    enabled: false
+    shard_size: 1
+    communication_overhead_weight: 0.0
+
+topology:
+  name: wan22-2xusp4-theoretical
+  backend_count: 2
+  devices_per_backend: 4
+  speed_factors: [1.0, 1.0]
+
+policy:
+  classifier:
+    type: all_normal
+  router:
+    type: weighted_least_load
+    sacrificial_load_factor: 0.1
+    load_view: assigned
+    update_latency_ema: false
+  scheduler:
+    type: fifo

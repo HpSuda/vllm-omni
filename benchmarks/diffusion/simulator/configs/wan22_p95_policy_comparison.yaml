@@ -1,0 +1,99 @@
+version: 1
+name: wan22-p95-policy-comparison
+seed: 162
+runs: 400
+baseline: 1xUSP8+All-Normal+FIFO
+
+# This is an explicit comparison, not an automatic Cartesian parameter search.
+# Scenario overrides are applied before variant overrides.
+scenarios:
+  - name: 50req-rps005-2xusp4
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+  - name: 50req-rps005-4xusp2
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+  - name: 100req-rps003-2xusp4
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+  - name: 100req-rps003-4xusp2
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+
+variants:
+  - name: 1xUSP8+All-Normal+FIFO
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      # max_sacrificial=0 makes the two-queue implementation exactly FIFO.
+      - policy.classifier.max_sacrificial=0
+      - service.hsdp.shard_size=8
+      - service.timing_model.execution.usp_degree=8
+      - topology.name=wan22-1xusp8-analytic
+      - topology.backend_count=1
+      - topology.devices_per_backend=8
+      - topology.speed_factors=[1.0]
+  - name: Quota-Tail+Assigned-WLL+Normal-FIFO+Tail-LIFO
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      # Restore the production-compatible rolling quota after scenario gates.
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing+No-Tail-Preemption
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.preempt_normal_over_sacrificial=false

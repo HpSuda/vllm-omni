@@ -1,0 +1,49 @@
+version: 1
+name: wan22-4xusp2-central-pull-holdout
+seed: 20042
+runs: 400
+baseline: Current Quota-Tail + Assigned-Load + FIFO/LIFO
+
+# Independent holdout. The only promoted candidate was selected before these
+# seeds were run. Diagnostic variants do not enter the primary hypothesis.
+scenarios:
+  - name: 50 requests at 0.05 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+  - name: 100 requests at 0.03 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+
+variants:
+  - name: Current Quota-Tail + Assigned-Load + FIFO/LIFO
+
+  - name: Central-Pull-Max-Risk + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-Max-Risk + Two-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=2.0
+
+  - name: Central-Pull-FIFO + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=fifo
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Work-Stealing-Max-Risk + Half-Second-Cost
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=max_risk
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=0.5

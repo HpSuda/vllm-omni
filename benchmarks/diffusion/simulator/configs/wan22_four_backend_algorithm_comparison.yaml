@@ -1,0 +1,79 @@
+version: 1
+name: wan22-four-backend-algorithm-comparison
+seed: 3862
+runs: 400
+baseline: 4xUSP2 All-Normal FIFO
+
+# Four-backend-only comparison. Every variant receives the same paired arrival
+# stream and request types. Tail budget uses the original rolling rule of one
+# credit per 20 requests. Preemption is disabled.
+scenarios:
+  - name: 50 requests at 0.05 rps
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.scheduler.preempt_normal_over_sacrificial=false
+  - name: 100 requests at 0.03 rps
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.scheduler.preempt_normal_over_sacrificial=false
+
+variants:
+  - name: 4xUSP2 All-Normal FIFO
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      - policy.classifier.max_sacrificial=0
+
+  - name: 4xUSP2 Quota-Tail + Assigned-Load + FIFO/LIFO
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+
+  - name: 4xUSP2 Quota-Tail + PECT-Remaining + Tail-Pack
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+      - policy.router.nonpreemptible_weight=0.0
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=false
+
+  - name: 4xUSP2 Quota-Tail + PECT-Remaining + Tail-Pack + Work-Stealing
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+      - policy.router.nonpreemptible_weight=0.0
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.global_protected_pull=false
+
+  - name: 4xUSP2 Quota-Tail + Central-Pull-Max-Risk + Tail-Pack
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+      - policy.router.nonpreemptible_weight=0.0
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5

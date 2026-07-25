@@ -1,0 +1,92 @@
+version: 1
+name: wan22-4xusp2-pect-calibrated
+
+simulation:
+  seed: 42
+  runs: 1
+
+workload:
+  num_requests: 50
+  utilization: null
+  request_rate: 0.05
+  request_types:
+    - name: short
+      weight: 0.15
+      width: 854
+      height: 480
+      num_inference_steps: 3
+      num_frames: 80
+      nominal_service_s: 68.60214959550649
+      estimated_service_s: 38.07
+      metadata: {fps: 16}
+    - name: medium
+      weight: 0.25
+      width: 854
+      height: 480
+      num_inference_steps: 4
+      num_frames: 120
+      nominal_service_s: 132.73277402296662
+      estimated_service_s: 71.34
+      metadata: {fps: 24}
+    - name: long
+      weight: 0.60
+      width: 1280
+      height: 720
+      num_inference_steps: 6
+      num_frames: 80
+      nominal_service_s: 357.1262867404148
+      estimated_service_s: 119.71
+      metadata: {fps: 16}
+
+service:
+  timing_model:
+    type: fixed_anchor
+  encode_fraction: 0.0
+  decode_fraction: 0.0
+  actual_jitter_sigma: 0.0
+  estimate_error_sigma: 0.0
+  preemption_cost_s: 0.0
+  actual_service_scale: 0.9689
+  hsdp:
+    enabled: false
+    shard_size: 1
+    communication_overhead_weight: 0.0
+
+topology:
+  name: wan22-4xusp2-measured-service
+  backend_count: 4
+  devices_per_backend: 2
+  speed_factors: [1.0, 1.0, 1.0, 1.0]
+
+# This policy receives exactly the same online estimates and queue state as the
+# original policy. It does not inspect request_type_name, workload size, future
+# arrivals, or actual service duration.
+policy:
+  classifier:
+    type: quota_tail
+    quota_every: 20
+    quota_amount: 1
+    threshold_ratio: 0.8
+    long_request_ratio: 1.5
+    initial_arrival_counter: 1
+    initial_credits: 0
+    initial_min_service_s: 0.499921875
+    initial_max_service_s: 0.499921875
+  router:
+    type: projected_completion
+    nonpreemptible_weight: 0.1
+    tail_mode: spread
+    load_view: assigned
+    update_latency_ema: false
+  scheduler:
+    type: two_queue
+    normal_order: fifo
+    sacrificial_order: lifo
+    preempt_normal_over_sacrificial: true
+    global_work_stealing: false
+    steal_order: max_risk
+    steal_hysteresis_s: 10.0
+    steal_cost_s: 0.5
+    global_protected_pull: false
+    protected_pull_order: max_risk
+    protected_pull_cost_s: 0.5

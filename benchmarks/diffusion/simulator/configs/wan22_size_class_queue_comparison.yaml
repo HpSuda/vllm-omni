@@ -1,0 +1,103 @@
+version: 1
+name: wan22-size-class-queue-comparison
+seed: 2562
+runs: 400
+baseline: M8 All-Normal FIFO
+
+# Isolate the local Normal-queue order while keeping the original rolling
+# Tail budget: one credit per 20 arrivals, with no finite-workload cap.
+scenarios:
+  - name: 50 requests / 2xUSP4
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+  - name: 50 requests / 4xUSP2
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+  - name: 100 requests / 2xUSP4
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+  - name: 100 requests / 4xUSP2
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.preemption_cost_s=2.0
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=null
+      - policy.classifier.max_sacrificial=null
+      - policy.classifier.eligible_request_types=null
+
+variants:
+  - name: M8 All-Normal FIFO
+    config: wan22_analytic_usp4.yaml
+    overrides:
+      - policy.classifier.max_sacrificial=0
+      - service.hsdp.shard_size=8
+      - service.timing_model.execution.usp_degree=8
+      - topology.name=wan22-1xusp8-analytic
+      - topology.backend_count=1
+      - topology.devices_per_backend=8
+      - topology.speed_factors=[1.0]
+  - name: PECT + Tail-Pack + Normal FIFO
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.normal_order=fifo
+      - policy.scheduler.global_work_stealing=false
+  - name: PECT + Tail-Pack + Strict Size-Class FIFO
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.normal_order=size_class_fifo
+      - policy.scheduler.global_work_stealing=false
+  - name: PECT + Tail-Pack + Bounded Size-Class FIFO (max bypass 1)
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.normal_order=bounded_size_class_fifo
+      - policy.scheduler.max_bypass=1
+      - policy.scheduler.global_work_stealing=false
+  - name: PECT + Tail-Pack + Bounded Size-Class FIFO (max bypass 2)
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - policy.scheduler.normal_order=bounded_size_class_fifo
+      - policy.scheduler.max_bypass=2
+      - policy.scheduler.global_work_stealing=false

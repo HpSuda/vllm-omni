@@ -1,0 +1,98 @@
+version: 1
+name: wan22-topology-conditional-central-pull-training
+seed: 1162
+runs: 100
+baseline: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing
+
+# Iteration after the uniform Central Pull screen:
+# - M4 keeps the incumbent Work-Stealing policy.
+# - M2 uses Max-Risk Central Pull with a frozen 0.5-second per-pull placeholder.
+# The zero- and one-second variants are diagnostics, not promotion candidates.
+scenarios:
+  - name: 50req-rps005-2xusp4
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.global_protected_pull=false
+  - name: 50req-rps005-4xusp2
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+  - name: 100req-rps003-2xusp4
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.global_protected_pull=false
+  - name: 100req-rps003-4xusp2
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+variants:
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.global_protected_pull=false
+  - name: M4-Work-Stealing+M2-Central-Pull-Max-Risk+Zero-Cost
+    overrides:
+      - policy.scheduler.protected_pull_cost_s=0.0
+  - name: M4-Work-Stealing+M2-Central-Pull-Max-Risk+Half-Second-Cost
+    overrides:
+      - policy.scheduler.protected_pull_cost_s=0.5
+  - name: M4-Work-Stealing+M2-Central-Pull-Max-Risk+One-Second-Cost
+    overrides:
+      - policy.scheduler.protected_pull_cost_s=1.0

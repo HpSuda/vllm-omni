@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-25",
+  "model": "Wan2.2-T2V-A14B-Diffusers",
+  "policy": "original_super_p95_step",
+  "method": {
+    "samples_per_profile": 4,
+    "max_concurrency": 1,
+    "warmup_requests_excluded": 1,
+    "pipeline_profiler": true,
+    "text_encoder_wall_time": "maximum rank duration for each of the two prompt-encoder calls",
+    "vae_decode_wall_time": "maximum rank duration",
+    "residual": "E2E mean minus text encoder and VAE decode; includes denoise, transfer, scheduling, and postprocess"
+  },
+  "profiles": {
+    "short": {
+      "width": 854,
+      "height": 480,
+      "num_inference_steps": 3,
+      "num_frames": 80,
+      "fps": 16
+    },
+    "medium": {
+      "width": 854,
+      "height": 480,
+      "num_inference_steps": 4,
+      "num_frames": 120,
+      "fps": 24
+    },
+    "long": {
+      "width": 1280,
+      "height": 720,
+      "num_inference_steps": 6,
+      "num_frames": 80,
+      "fps": 16
+    }
+  },
+  "topologies": {
+    "2xUSP4": {
+      "backend_count": 2,
+      "usp_degree": 4,
+      "profiles": {
+        "short": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 185.8462661281228,
+          "throughput_rps": 0.021523165804377214,
+          "latency_mean_s": 46.461192143149674,
+          "latency_median_s": 46.44921253621578,
+          "latency_p95_s": 46.51360784806311,
+          "latency_p99_s": 46.521162886098026,
+          "text_encoder_mean_s": 0.1238575,
+          "vae_decode_mean_s": 12.940167500000001,
+          "residual_mean_s": 33.39716714314967
+        },
+        "medium": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 347.4780523814261,
+          "throughput_rps": 0.011511518418461741,
+          "latency_mean_s": 86.86919855233282,
+          "latency_median_s": 86.86348046921194,
+          "latency_p95_s": 86.92942215111107,
+          "latency_p99_s": 86.93785221200436,
+          "text_encoder_mean_s": 0.1248095,
+          "vae_decode_mean_s": 19.27164175,
+          "residual_mean_s": 67.47274730233282
+        },
+        "long": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 754.8825109042227,
+          "throughput_rps": 0.005298837822072034,
+          "latency_mean_s": 188.72025074996054,
+          "latency_median_s": 188.59879569523036,
+          "latency_p95_s": 189.0508069967851,
+          "latency_p99_s": 189.11083359669894,
+          "text_encoder_mean_s": 0.12570325,
+          "vae_decode_mean_s": 27.77171225,
+          "residual_mean_s": 160.82283524996055,
+          "npu_active_aicore_mean_percent": 61.68571428571428,
+          "npu_active_aivector_mean_percent": 77.41428571428571,
+          "npu_active_hbm_bandwidth_mean_percent": 23.807142857142857
+        }
+      }
+    },
+    "4xUSP2": {
+      "backend_count": 4,
+      "usp_degree": 2,
+      "profiles": {
+        "short": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 274.410237737,
+          "throughput_rps": 0.014576715624705213,
+          "latency_mean_s": 68.60214959550649,
+          "latency_median_s": 68.59343142993748,
+          "latency_p95_s": 68.70460817012936,
+          "latency_p99_s": 68.7091158356145,
+          "text_encoder_mean_s": 0.1189205,
+          "vae_decode_mean_s": 12.954971,
+          "residual_mean_s": 55.52825809550649
+        },
+        "medium": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 530.9325166493654,
+          "throughput_rps": 0.007533914150226461,
+          "latency_mean_s": 132.73277402296662,
+          "latency_median_s": 132.4067501667887,
+          "latency_p95_s": 133.53343969564884,
+          "latency_p99_s": 133.69148217733948,
+          "text_encoder_mean_s": 0.12170025,
+          "vae_decode_mean_s": 19.2141205,
+          "residual_mean_s": 113.39695327296661
+        },
+        "long": {
+          "completed": 4,
+          "failed": 0,
+          "duration_s": 1428.506726641208,
+          "throughput_rps": 0.0028001268215271506,
+          "latency_mean_s": 357.1262867404148,
+          "latency_median_s": 357.1847701501101,
+          "latency_p95_s": 357.86987309958783,
+          "latency_p99_s": 357.9337546543404,
+          "text_encoder_mean_s": 0.11835875,
+          "vae_decode_mean_s": 27.70060875,
+          "residual_mean_s": 329.30731924041476,
+          "npu_active_aicore_mean_percent": 65.76315789473684,
+          "npu_active_aivector_mean_percent": 77.7218045112782,
+          "npu_active_hbm_bandwidth_mean_percent": 29.56766917293233
+        }
+      }
+    }
+  },
+  "usp2_vs_usp4_percent": {
+    "short": {
+      "latency_mean": 47.65473383493739,
+      "latency_p95": 47.708619796927486,
+      "text_encoder": -3.9860323355468963,
+      "vae_decode": 0.11439960108707847,
+      "residual": 66.26637180781447
+    },
+    "medium": {
+      "latency_mean": 52.79613054448073,
+      "latency_p95": 53.611327892557625,
+      "text_encoder": -2.4911965835934025,
+      "vae_decode": -0.2984761274944292,
+      "residual": 68.06334084020023
+    },
+    "long": {
+      "latency_mean": 89.23580554880618,
+      "latency_p95": 89.29825203320799,
+      "text_encoder": -5.842728807727715,
+      "vae_decode": -0.2560285061285694,
+      "residual": 104.76403038696928
+    }
+  },
+  "operator_profile_long_shape_2steps": {
+    "scope": {
+      "rank": 0,
+      "width": 1280,
+      "height": 720,
+      "num_inference_steps": 2,
+      "num_frames": 80,
+      "fps": 16
+    },
+    "2xUSP4": {
+      "e2e_s": 86.07789332419634,
+      "npu_stage_s": 78.605845,
+      "computing_s": 75.99350253999586,
+      "communication_not_overlapped_s": 2.3995649799999983,
+      "free_s": 0.2127772440000387,
+      "top_ops": {
+        "FlashAttentionScore_s": 30.22488354,
+        "ViewCopy_s": 8.427782303999999,
+        "MatMulV3_s": 5.045797252000001,
+        "Conv3DV2_s": 9.742533592000001,
+        "TransData_s": 7.654310824
+      }
+    },
+    "4xUSP2": {
+      "e2e_s": 141.35310576111078,
+      "npu_stage_s": 134.04142925,
+      "computing_s": 126.22745591597798,
+      "communication_not_overlapped_s": 7.615604356000001,
+      "free_s": 0.19836904399996025,
+      "top_ops": {
+        "FlashAttentionScore_s": 62.979539175999996,
+        "ViewCopy_s": 16.75336616,
+        "MatMulV3_s": 9.84853444,
+        "Conv3DV2_s": 9.728063720000002,
+        "TransData_s": 7.693165167999999
+      }
+    },
+    "usp2_vs_usp4": {
+      "e2e_percent": 64.21534066677337,
+      "npu_stage_percent": 70.52348874310808,
+      "computing_percent": 66.10295840692916,
+      "communication_not_overlapped_percent": 217.37437491690707,
+      "npu_stage_delta_s": 55.43558424999999,
+      "computing_delta_s": 50.233953375982125,
+      "communication_not_overlapped_delta_s": 5.216039376000003
+    }
+  },
+  "remote_result_root": "/tmp/wan22_component_profile_20260725_134723"
+}

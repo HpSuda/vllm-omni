@@ -1,0 +1,104 @@
+version: 1
+name: wan22-central-pull-training
+seed: 662
+runs: 100
+baseline: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing
+
+# One-component iteration: classifier, Tail routing, local FIFO, preemption,
+# service model, and topology remain frozen. Central Pull variants differ only
+# in global protected order and the explicit per-pull coordination cost.
+scenarios:
+  - name: 50req-rps005-2xusp4
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+  - name: 50req-rps005-4xusp2
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[25,30]
+      - policy.classifier.max_sacrificial=2
+      - policy.classifier.eligible_request_types=[long]
+  - name: 100req-rps003-2xusp4
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+  - name: 100req-rps003-4xusp2
+    config: wan22_centered_cohort_pect_pack_steal_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+      - policy.classifier.max_sacrificial=4
+      - policy.classifier.eligible_request_types=[long]
+
+variants:
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=false
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO+Work-Stealing
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.global_protected_pull=false
+  - name: Centered-Cohort+Central-Pull-FIFO+Zero-Cost+Tail-Pack
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=fifo
+      - policy.scheduler.protected_pull_cost_s=0.0
+  - name: Centered-Cohort+Central-Pull-Max-Risk+Zero-Cost+Tail-Pack
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.0
+  - name: Centered-Cohort+Central-Pull-FIFO+Two-Second-Cost+Tail-Pack
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=fifo
+      - policy.scheduler.protected_pull_cost_s=2.0
+  - name: Centered-Cohort+Central-Pull-Max-Risk+Two-Second-Cost+Tail-Pack
+    overrides:
+      - policy.scheduler.global_work_stealing=false
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=2.0

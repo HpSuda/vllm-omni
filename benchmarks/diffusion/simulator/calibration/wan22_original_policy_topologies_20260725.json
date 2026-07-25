@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-25",
+  "model": "Wan2.2-T2V-A14B-Diffusers",
+  "policy": {
+    "name": "original_super_p95_step",
+    "quota_every": 20,
+    "quota_amount": 1,
+    "threshold_ratio": 0.8,
+    "sacrificial_load_factor": 0.1,
+    "normal_order": "fifo",
+    "tail_order": "lifo",
+    "normal_preempts_tail": true
+  },
+  "workload": {
+    "seed": 42,
+    "request_type_weights": {
+      "short": 0.15,
+      "medium": 0.25,
+      "long": 0.6
+    },
+    "profiles": {
+      "short": {
+        "width": 854,
+        "height": 480,
+        "num_inference_steps": 3,
+        "num_frames": 80,
+        "fps": 16
+      },
+      "medium": {
+        "width": 854,
+        "height": 480,
+        "num_inference_steps": 4,
+        "num_frames": 120,
+        "fps": 24
+      },
+      "long": {
+        "width": 1280,
+        "height": 720,
+        "num_inference_steps": 6,
+        "num_frames": 80,
+        "fps": 16
+      }
+    }
+  },
+  "npu_results": [
+    {
+      "topology": "2xUSP4",
+      "num_requests": 50,
+      "request_rate_rps": 0.05,
+      "completed": 50,
+      "failed": 0,
+      "duration_s": 3187.859997421503,
+      "throughput_rps": 0.015684503096259697,
+      "latency_mean_s": 1238.781164791435,
+      "latency_p50_s": 1174.2955214399844,
+      "latency_p95_s": 2185.5592355556782,
+      "latency_p99_s": 2718.5855139357586
+    },
+    {
+      "topology": "2xUSP4",
+      "num_requests": 100,
+      "request_rate_rps": 0.03,
+      "completed": 100,
+      "failed": 0,
+      "duration_s": 6560.263846836984,
+      "throughput_rps": 0.015243289345475756,
+      "latency_mean_s": 1772.2291364420578,
+      "latency_p50_s": 1728.6081314831972,
+      "latency_p95_s": 2968.9904440643263,
+      "latency_p99_s": 5250.711000918527
+    },
+    {
+      "topology": "4xUSP2",
+      "num_requests": 50,
+      "request_rate_rps": 0.05,
+      "completed": 50,
+      "failed": 0,
+      "duration_s": 3055.3553801849484,
+      "throughput_rps": 0.01636470844742564,
+      "latency_mean_s": 1140.1924802164733,
+      "latency_p50_s": 1134.3971465192735,
+      "latency_p95_s": 2122.546404009871,
+      "latency_p99_s": 2603.0554622235513
+    },
+    {
+      "topology": "4xUSP2",
+      "num_requests": 100,
+      "request_rate_rps": 0.03,
+      "completed": 100,
+      "failed": 0,
+      "duration_s": 6202.521085843444,
+      "throughput_rps": 0.01612247642788974,
+      "latency_mean_s": 1543.0043671551718,
+      "latency_p50_s": 1470.3963969610631,
+      "latency_p95_s": 2565.2215651892125,
+      "latency_p99_s": 4450.562128660163
+    }
+  ],
+  "serial_profile_e2e_s": {
+    "2xUSP4": {
+      "short": 46.461192143149674,
+      "medium": 86.86919855233282,
+      "long": 188.72025074996054
+    },
+    "4xUSP2": {
+      "short": 68.60214959550649,
+      "medium": 132.73277402296662,
+      "long": 357.1262867404148
+    }
+  },
+  "production_estimator_s": {
+    "short": 38.07,
+    "medium": 71.34,
+    "long": 119.71
+  },
+  "simulator_calibration": {
+    "method": "one shared actual-service scale per topology, jointly fitted to 50/100-request P95",
+    "2xUSP4": {
+      "actual_service_scale": 0.958,
+      "cases": {
+        "50": {
+          "duration_s": 3204.522396027523,
+          "throughput_rps": 0.015602949151481155,
+          "latency_mean_s": 1232.2788025081136,
+          "latency_p50_s": 1149.6757849165729,
+          "latency_p95_s": 2186.770131974228,
+          "latency_p99_s": 2717.893922118189,
+          "p95_relative_error_percent": 0.05540442001528145
+        },
+        "100": {
+          "duration_s": 6709.176639333943,
+          "throughput_rps": 0.01490495859264298,
+          "latency_mean_s": 1776.5172583591093,
+          "latency_p50_s": 1726.912572882995,
+          "latency_p95_s": 2967.9125980332155,
+          "latency_p99_s": 5573.583548987562,
+          "p95_relative_error_percent": -0.036303452349117915
+        }
+      }
+    },
+    "4xUSP2": {
+      "actual_service_scale": 0.9689,
+      "cases": {
+        "50": {
+          "duration_s": 3178.70529451568,
+          "throughput_rps": 0.015729674621383295,
+          "latency_mean_s": 1150.9419714365113,
+          "latency_p50_s": 1154.0463575164752,
+          "latency_p95_s": 2106.9852304322103,
+          "latency_p99_s": 2654.5513146294106,
+          "p95_relative_error_percent": -0.7331370258036651
+        },
+        "100": {
+          "duration_s": 6125.867230781737,
+          "throughput_rps": 0.01632421928727286,
+          "latency_mean_s": 1521.773446899484,
+          "latency_p50_s": 1454.6581843363585,
+          "latency_p95_s": 2574.1082039612415,
+          "latency_p99_s": 4932.437097870998,
+          "p95_relative_error_percent": 0.3464277274377814
+        }
+      }
+    }
+  },
+  "remote_result_root": "/tmp/wan22_baseline_original_20260725",
+  "component_profile_remote_result_root": "/tmp/wan22_component_profile_20260725_134723"
+}

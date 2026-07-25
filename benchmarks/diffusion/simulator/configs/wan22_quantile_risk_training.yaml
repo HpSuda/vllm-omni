@@ -1,0 +1,117 @@
+version: 1
+name: wan22-quantile-risk-admission-training
+seed: 562
+runs: 100
+baseline: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO
+
+# This is a six-candidate hypothesis screen, not a Cartesian search.
+# All four scenarios use the same seed block. Only risk_quantile and
+# eligible-risk history length vary.
+scenarios:
+  - name: 50req-rps005-2xusp4
+    config: wan22_quantile_risk_pect_pack_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.tail_budget=2
+      - policy.classifier.history_window=20
+      - policy.classifier.admission_end_request=50
+      - policy.classifier.credit_release_requests=[25,30]
+  - name: 50req-rps005-4xusp2
+    config: wan22_quantile_risk_pect_pack_50.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.tail_budget=2
+      - policy.classifier.history_window=20
+      - policy.classifier.admission_end_request=50
+      - policy.classifier.credit_release_requests=[25,30]
+  - name: 100req-rps003-2xusp4
+    config: wan22_quantile_risk_pect_pack_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=4
+      - service.timing_model.execution.usp_degree=4
+      - topology.name=wan22-2xusp4-analytic
+      - topology.backend_count=2
+      - topology.devices_per_backend=4
+      - topology.speed_factors=[1.0,1.0]
+      - policy.classifier.tail_budget=4
+      - policy.classifier.history_window=40
+      - policy.classifier.admission_end_request=100
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+  - name: 100req-rps003-4xusp2
+    config: wan22_quantile_risk_pect_pack_50.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - service.hsdp.shard_size=2
+      - service.timing_model.execution.usp_degree=2
+      - topology.name=wan22-4xusp2-analytic
+      - topology.backend_count=4
+      - topology.devices_per_backend=2
+      - topology.speed_factors=[1.0,1.0,1.0,1.0]
+      - policy.classifier.tail_budget=4
+      - policy.classifier.history_window=40
+      - policy.classifier.admission_end_request=100
+      - policy.classifier.credit_release_requests=[40,50,60,70]
+
+variants:
+  - name: Centered-Cohort+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      # A zero multiplier admits the first eligible long after each credit.
+      # min_observations=1 is enough before the first centered credit.
+      - policy.classifier.risk_quantile=0.0
+      - policy.classifier.min_observations=1
+      - policy.classifier.history_window=null
+      - policy.classifier.risk_threshold_multiplier=0.0
+  - name: Centered-Cohort+Quantile-Risk-q80+Full-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.80
+      - policy.classifier.min_observations=10
+      - policy.classifier.history_window=null
+      - policy.classifier.risk_threshold_multiplier=1.0
+  - name: Centered-Cohort+Quantile-Risk-q90+Full-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.90
+      - policy.classifier.min_observations=10
+      - policy.classifier.history_window=null
+      - policy.classifier.risk_threshold_multiplier=1.0
+  - name: Centered-Cohort+Quantile-Risk-q95+Full-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.95
+      - policy.classifier.min_observations=10
+      - policy.classifier.history_window=null
+      - policy.classifier.risk_threshold_multiplier=1.0
+  - name: Centered-Cohort+Quantile-Risk-q80+Recent-40%-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.80
+      - policy.classifier.min_observations=10
+      - policy.classifier.risk_threshold_multiplier=1.0
+  - name: Centered-Cohort+Quantile-Risk-q90+Recent-40%-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.90
+      - policy.classifier.min_observations=10
+      - policy.classifier.risk_threshold_multiplier=1.0
+  - name: Centered-Cohort+Quantile-Risk-q95+Recent-40%-History+PECT-Remaining+Tail-Pack+FIFO
+    overrides:
+      - policy.classifier.risk_quantile=0.95
+      - policy.classifier.min_observations=10
+      - policy.classifier.risk_threshold_multiplier=1.0

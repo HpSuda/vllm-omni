@@ -1,0 +1,130 @@
+version: 1
+name: wan22-2xusp4-p95-pect-sink
+
+simulation:
+  seed: 42
+  runs: 1
+
+workload:
+  # Keep the documented RANDOM3 benchmark fixed.
+  num_requests: 50
+  utilization: null
+  request_rate: 0.05
+  request_types:
+    - name: short
+      weight: 0.15
+      width: 854
+      height: 480
+      num_inference_steps: 3
+      num_frames: 80
+      nominal_service_s: 38.07
+      metadata: {fps: 16}
+    - name: medium
+      weight: 0.25
+      width: 854
+      height: 480
+      num_inference_steps: 4
+      num_frames: 120
+      nominal_service_s: 71.34
+      metadata: {fps: 24}
+    - name: long
+      weight: 0.60
+      width: 1280
+      height: 720
+      num_inference_steps: 6
+      num_frames: 80
+      nominal_service_s: 119.71
+      metadata: {fps: 16}
+
+service:
+  encode_fraction: 0.0
+  decode_fraction: 0.0
+  actual_jitter_sigma: 0.0
+  estimate_error_sigma: 0.0
+  preemption_cost_s: 0.0
+  actual_service_scale: 1.0
+  hsdp:
+    enabled: false
+    shard_size: 4
+    communication_overhead_weight: 0.0
+  timing_model:
+    type: analytic_wan22
+    model:
+      vae_spatial_scale: 8
+      vae_temporal_scale: 4
+      patch_size: [1, 2, 2]
+      num_layers: 40
+      num_attention_heads: 40
+      hidden_size: 5120
+      ffn_dim: 13824
+      text_tokens: 512
+      latent_channels: 16
+      output_channels: 16
+      activation_bytes: 2
+      latent_element_bytes: 4
+      parameter_bytes: 2
+    execution:
+      usp_degree: 4
+      ulysses_mode: strict
+      cfg_passes: 2
+      parallel_compute_efficiency: 1.0
+      shape_efficiency_reference_tokens: 75600
+      shape_efficiency_exponent: 1.0
+      min_shape_efficiency: 0.10
+      usp_overlap_fraction: 0.0
+      hsdp_overlap_fraction: 0.0
+    hardware:
+      effective_compute_tflops_per_device: 180.0
+      effective_usp_bandwidth_gbytes_per_s: 50.0
+      effective_hsdp_bandwidth_gbytes_per_s: 45.0
+      usp_collective_latency_us: 100.0
+      hsdp_collective_latency_us: 100.0
+    stages:
+      text_encode_s: 2.0
+      latent_prepare_fixed_s: 0.20
+      latent_prepare_bandwidth_gbytes_per_s: 25.0
+      vae_decode_fixed_s: 0.50
+      vae_decode_gpixel_per_s: 0.025
+      denoise_step_overhead_s: 0.05
+      postprocess_s: 0.20
+
+topology:
+  name: wan22-2xusp4-analytic
+  backend_count: 2
+  devices_per_backend: 4
+  speed_factors: [1.0, 1.0]
+
+policy:
+  classifier:
+    type: quota_tail
+    quota_every: 20
+    quota_amount: 1
+    threshold_ratio: 0.8
+    long_request_ratio: 1.5
+    initial_arrival_counter: 1
+    initial_credits: 0
+    initial_min_service_s: 0.499921875
+    initial_max_service_s: 0.499921875
+    # Explicit measured-request gates reproduce the current two tail positions
+    # without allowing warmup state or accumulated credits to exceed the P95 cap.
+    credit_release_requests: [19, 39]
+    max_sacrificial: 2
+    eligible_request_types: [long]
+  router:
+    type: projected_completion
+    nonpreemptible_weight: 0.1
+    tail_mode: sink
+    load_view: remaining
+    update_latency_ema: true
+  scheduler:
+    type: two_queue
+    normal_order: fifo
+    sacrificial_order: lifo
+    preempt_normal_over_sacrificial: true
+    max_bypass: 2
+    aging_s: null
+    preemption_hysteresis_s: 0.0
+    global_work_stealing: false
+    steal_order: max_risk
+    steal_hysteresis_s: 0.0
+    steal_cost_s: 0.0

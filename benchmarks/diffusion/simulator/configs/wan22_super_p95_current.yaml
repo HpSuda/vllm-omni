@@ -1,0 +1,85 @@
+version: 1
+name: wan22-2xusp4-super-p95-current
+
+simulation:
+  seed: 42
+  runs: 20
+
+workload:
+  num_requests: 100
+  utilization: 0.9
+  request_rate: null
+  request_types:
+    - name: short
+      weight: 0.15
+      width: 854
+      height: 480
+      num_inference_steps: 3
+      num_frames: 80
+      nominal_service_s: 38.07
+      metadata:
+        fps: 16
+    - name: medium
+      weight: 0.25
+      width: 854
+      height: 480
+      num_inference_steps: 4
+      num_frames: 120
+      nominal_service_s: 71.34
+      metadata:
+        fps: 24
+    - name: long
+      weight: 0.60
+      width: 1280
+      height: 720
+      num_inference_steps: 6
+      num_frames: 80
+      nominal_service_s: 119.71
+      metadata:
+        fps: 16
+
+service:
+  # Only total anchors are available today, so encode/decode default to zero
+  # and the entire nominal service time is spread evenly over denoise steps.
+  encode_fraction: 0.0
+  decode_fraction: 0.0
+  actual_jitter_sigma: 0.0
+  estimate_error_sigma: 0.0
+  preemption_cost_s: 0.0
+  actual_service_scale: 1.0
+  hsdp:
+    enabled: false
+    shard_size: 1
+    communication_overhead_weight: 0.0
+
+topology:
+  name: wan22-2xusp4-theoretical
+  backend_count: 2
+  devices_per_backend: 4
+  speed_factors: [1.0, 1.0]
+
+policy:
+  classifier:
+    type: quota_tail
+    quota_every: 20
+    quota_amount: 1
+    threshold_ratio: 0.8
+    long_request_ratio: 1.5
+    # Set these fields to the persisted state left by a benchmark warmup when
+    # exact replay is needed. The theoretical multi-seed default is cold-start.
+    initial_arrival_counter: 0
+    initial_credits: 0
+    initial_min_service_s: null
+    initial_max_service_s: 0.0
+  router:
+    type: weighted_least_load
+    sacrificial_load_factor: 0.1
+    # Wan's current async POST/GET path retains the original assigned estimate
+    # until job completion and does not update its latency EMA.
+    load_view: assigned
+    update_latency_ema: false
+  scheduler:
+    type: two_queue
+    normal_order: fifo
+    sacrificial_order: lifo
+    preempt_normal_over_sacrificial: true

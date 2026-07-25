@@ -1,0 +1,84 @@
+version: 1
+name: wan22-4xusp2-online-policy-screen
+seed: 9042
+runs: 100
+baseline: Current Quota-Tail + Assigned-Load + Normal-FIFO + Tail-LIFO
+
+# The workload is unchanged. All variants use only arrived requests, the
+# production estimator, arrival time/order, and dispatcher-owned queue state.
+scenarios:
+  - name: 50 requests at 0.05 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+  - name: 100 requests at 0.03 rps
+    config: wan22_4xusp2_calibrated.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+
+variants:
+  - name: Current Quota-Tail + Assigned-Load + Normal-FIFO + Tail-LIFO
+
+  - name: Current + Normal Arrival-Time+Estimated-Cost
+    overrides:
+      - policy.scheduler.normal_order=arrival_plus_cost
+
+  - name: Current + Tail-FIFO
+    overrides:
+      - policy.scheduler.sacrificial_order=fifo
+
+  - name: Current + Ignore-Tail-Load
+    overrides:
+      - policy.router.sacrificial_load_factor=0.0
+
+  - name: Current + Full-Tail-Load
+    overrides:
+      - policy.router.sacrificial_load_factor=1.0
+
+  - name: Current + Work-Stealing-Max-Risk
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=max_risk
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=0.5
+
+  - name: Current + Work-Stealing-Oldest
+    overrides:
+      - policy.scheduler.global_work_stealing=true
+      - policy.scheduler.steal_order=oldest
+      - policy.scheduler.steal_hysteresis_s=10.0
+      - policy.scheduler.steal_cost_s=0.5
+
+  - name: Central-Pull-FIFO
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=fifo
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: Central-Pull-Max-Risk
+    overrides:
+      - policy.scheduler.global_protected_pull=true
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.scheduler.protected_pull_cost_s=0.5
+
+  - name: PECT-Assigned + Tail-Spread + FIFO/LIFO
+    config: wan22_4xusp2_pect_calibrated.yaml
+
+  - name: PECT-Assigned + Tail-Pack + FIFO/LIFO
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.router.tail_mode=pack
+
+  - name: PECT-Assigned + Tail-Sink + FIFO/LIFO
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.router.tail_mode=sink
+
+  - name: PECT-Assigned + Tail-Spread + Arrival-Time+Estimated-Cost
+    config: wan22_4xusp2_pect_calibrated.yaml
+    overrides:
+      - policy.scheduler.normal_order=arrival_plus_cost
