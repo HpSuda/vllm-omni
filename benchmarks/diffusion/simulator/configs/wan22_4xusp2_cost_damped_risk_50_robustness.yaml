@@ -1,0 +1,43 @@
+version: 1
+name: wan22-4xusp2-cost-damped-risk-50-robustness
+seed: 50042
+runs: 800
+baseline: Current + 4xUSP2 Estimator
+
+# Every scenario is the unchanged 50-request benchmark. Actual-service jitter
+# is paired by seed and invisible to all policies; it only checks whether the
+# ranking survives modest request-level runtime variation.
+scenarios:
+  - name: fixed measured anchors
+    config: wan22_4xusp2_cost_damped_risk_50.yaml
+  - name: actual jitter sigma 0.01
+    config: wan22_4xusp2_cost_damped_risk_50.yaml
+    overrides:
+      - service.actual_jitter_sigma=0.01
+  - name: actual jitter sigma 0.03
+    config: wan22_4xusp2_cost_damped_risk_50.yaml
+    overrides:
+      - service.actual_jitter_sigma=0.03
+  - name: actual jitter sigma 0.05
+    config: wan22_4xusp2_cost_damped_risk_50.yaml
+    overrides:
+      - service.actual_jitter_sigma=0.05
+  - name: actual jitter sigma 0.10
+    config: wan22_4xusp2_cost_damped_risk_50.yaml
+    overrides:
+      - service.actual_jitter_sigma=0.10
+
+variants:
+  - name: Current + 4xUSP2 Estimator
+    overrides:
+      - policy.scheduler.global_protected_pull=false
+
+  - name: Central Pull + FIFO
+    overrides:
+      - policy.scheduler.protected_pull_order=fifo
+
+  - name: Central Pull + Max Risk
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+
+  - name: Central Pull + Cost-Damped Risk beta0.5

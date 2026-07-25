@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "experiment": {
+    "name": "wan22-4xusp2-cost-damped-risk-50-robustness",
+    "primary_metric": "system E2E latency P95",
+    "topology": "4xUSP2",
+    "num_requests": 50,
+    "request_rate_rps": 0.05,
+    "request_mix": {
+      "short": 0.15,
+      "medium": 0.25,
+      "long": 0.6
+    },
+    "seed_first": 50042,
+    "seed_last": 50841,
+    "paired_runs_per_scenario": 800,
+    "actual_service_scale": 0.9689
+  },
+  "policy_visible_estimator_s": {
+    "short": 68.60214959550649,
+    "medium": 132.73277402296662,
+    "long": 357.1262867404148
+  },
+  "candidate": {
+    "name": "Central Pull + Cost-Damped Risk beta0.5",
+    "protected_pull_order": "cost_damped_risk",
+    "protected_pull_risk_beta": 0.5,
+    "protected_pull_cost_s": 0.5,
+    "score": "now_s - arrival_time_s + beta * estimated_service_s",
+    "tie_break": "older arrival, then request id",
+    "information_boundary": [
+      "arrived requests only",
+      "arrival time and order",
+      "topology-specific estimated service",
+      "dispatcher-owned queue state"
+    ],
+    "unchanged_components": [
+      "original rolling quota-tail classifier",
+      "weighted assigned-load Tail routing",
+      "local Normal FIFO",
+      "local Tail LIFO",
+      "Normal-over-Tail step-boundary preemption",
+      "no Normal-to-Normal preemption",
+      "no migration after first backend binding"
+    ]
+  },
+  "global_paired_result_across_five_jitter_scenarios": {
+    "mean_p95_reduction_pct": 3.039210077105451,
+    "bootstrap_ci95_pct": [
+      2.9232778856528947,
+      3.155048889928568
+    ],
+    "one_sided_95_lcb_pct": 2.9418072137492275,
+    "paired_sign_flip_p_one_sided_holm": 0.00000999990000099999,
+    "scenario_weighting": "equal within each paired seed block"
+  },
+  "scenarios": [
+    {
+      "actual_jitter_sigma": 0.0,
+      "baseline_mean_p95_s": 2146.171159693685,
+      "candidate_mean_p95_s": 2083.2019084330223,
+      "paired_p95_reduction_pct": 2.931961296775348,
+      "bootstrap_ci95_pct": [
+        2.7804208432579864,
+        3.082324279075084
+      ],
+      "win_rate_pct": 90.625,
+      "worst_seed": 50755,
+      "worst_seed_reduction_pct": -3.2345675903117406,
+      "diagnostic_max_risk_mean_p95_s": 2103.3546349237013,
+      "diagnostic_max_risk_paired_reduction_pct": 1.9826455946270085,
+      "diagnostic_fifo_mean_p95_s": 2119.7946239812272,
+      "diagnostic_fifo_paired_reduction_pct": 1.201672780605471
+    },
+    {
+      "actual_jitter_sigma": 0.01,
+      "baseline_mean_p95_s": 2143.822404023723,
+      "candidate_mean_p95_s": 2083.3672052455913,
+      "paired_p95_reduction_pct": 2.8197006144343466,
+      "bootstrap_ci95_pct": [
+        2.668960895746379,
+        2.9727699794988114
+      ],
+      "win_rate_pct": 90.0,
+      "worst_seed": 50755,
+      "worst_seed_reduction_pct": -2.886423318869758
+    },
+    {
+      "actual_jitter_sigma": 0.03,
+      "baseline_mean_p95_s": 2146.7802773607104,
+      "candidate_mean_p95_s": 2084.4997301479543,
+      "paired_p95_reduction_pct": 2.905322551520478,
+      "bootstrap_ci95_pct": [
+        2.755626235318474,
+        3.059204981458846
+      ],
+      "win_rate_pct": 90.75,
+      "worst_seed": 50050,
+      "worst_seed_reduction_pct": -3.167238703503551
+    },
+    {
+      "actual_jitter_sigma": 0.05,
+      "baseline_mean_p95_s": 2149.711876455643,
+      "candidate_mean_p95_s": 2085.688824930452,
+      "paired_p95_reduction_pct": 2.9790949805605034,
+      "bootstrap_ci95_pct": [
+        2.817554034915275,
+        3.1413062470100583
+      ],
+      "win_rate_pct": 90.75,
+      "worst_seed": 50396,
+      "worst_seed_reduction_pct": -3.9099065305210052
+    },
+    {
+      "actual_jitter_sigma": 0.1,
+      "baseline_mean_p95_s": 2166.088106703749,
+      "candidate_mean_p95_s": 2088.926295712786,
+      "paired_p95_reduction_pct": 3.5599709422365793,
+      "bootstrap_ci95_pct": [
+        3.388808836603315,
+        3.732002225526402
+      ],
+      "win_rate_pct": 93.625,
+      "worst_seed": 50784,
+      "worst_seed_reduction_pct": -3.316369451524233
+    }
+  ],
+  "fixed_anchor_secondary_metrics": {
+    "latency_mean": {
+      "baseline_s": 1193.7084344276795,
+      "candidate_s": 1273.0585309223993,
+      "improvement_pct": -6.647359958779546
+    },
+    "latency_p50": {
+      "baseline_s": 1162.5291177724707,
+      "candidate_s": 1268.7153345617255,
+      "improvement_pct": -9.134069432404313
+    },
+    "latency_p99": {
+      "baseline_s": 2786.6277518951115,
+      "candidate_s": 2784.1521146237146,
+      "improvement_pct": 0.08883989868087863
+    },
+    "makespan": {
+      "baseline_s": 3458.579122772376,
+      "candidate_s": 3395.190941559823,
+      "improvement_pct": 1.8327810052164335
+    },
+    "throughput": {
+      "baseline_rps": 0.014539126069334843,
+      "candidate_rps": 0.014801332619794433,
+      "improvement_pct": 1.8034546864038996
+    },
+    "p95_boundary_mean_delta_s": {
+      "L47": 32.2549810045907,
+      "L48": 88.0991087429037
+    },
+    "candidate_tail_requests_per_run": 2,
+    "candidate_protected_pulls_per_run": 48,
+    "candidate_pull_cost_total_s_per_run": 24.0,
+    "candidate_central_queue_max_depth_mean": 32.09875
+  },
+  "benchmark_seed_42": {
+    "old_estimator_current_p95_s": 2106.985,
+    "new_estimator_current_p95_s": 2018.615,
+    "new_estimator_candidate_p95_s": 1947.096,
+    "candidate_vs_new_estimator_current_reduction_pct": 3.542974679863457,
+    "candidate_vs_old_estimator_current_reduction_pct": 7.58851394124486
+  },
+  "reproduce": [
+    "uv run --no-sync python -m benchmarks.diffusion.simulator.sweep --matrix benchmarks/diffusion/simulator/configs/wan22_4xusp2_cost_damped_risk_50_robustness.yaml --output /tmp/wan22_4xusp2_cost_damped_risk_50_robustness.json",
+    "uv run --no-sync python -m benchmarks.diffusion.simulator.sweep_stats --input /tmp/wan22_4xusp2_cost_damped_risk_50_robustness.json --output /tmp/wan22_4xusp2_cost_damped_risk_50_robustness_stats.json --hypothesis-variant 'Central Pull + Cost-Damped Risk beta0.5'"
+  ],
+  "raw_local_artifact_sha256": {
+    "sweep": "2128bd514593c92c786241c471137eef1d903395b8518fbcc45c2e207ef0a2de",
+    "stats": "8d16fe65ea56c2d692be8ab6a21162a7ea154e54600e59fe53232436e2ad939f"
+  }
+}
