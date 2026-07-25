@@ -8,6 +8,7 @@ DEVICE_IDS="${DEVICE_IDS:-0,1;2,3;4,5;6,7}"
 BACKEND_START_PORT="${BACKEND_START_PORT:-8091}"
 BACKEND_LOG_DIR="${BACKEND_LOG_DIR:-/tmp/wan22_t2v_super_p95_4x2_central_pull}"
 HARDWARE_PROFILE="${HARDWARE_PROFILE:-910B3}"
+WAN22_ESTIMATOR_PROFILE="${WAN22_ESTIMATOR_PROFILE:-4xusp2}"
 REQUEST_TIMEOUT_S="${REQUEST_TIMEOUT_S:-1000000}"
 BACKEND_HEALTH_TIMEOUT_S="${BACKEND_HEALTH_TIMEOUT_S:-1800}"
 BACKEND_HEALTH_POLL_INTERVAL_S="${BACKEND_HEALTH_POLL_INTERVAL_S:-10}"
@@ -25,7 +26,7 @@ fi
 mkdir -p "${BACKEND_LOG_DIR}"
 
 exec env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
-python3 benchmarks/diffusion/super_p95_dispatcher.py \
+python3 benchmarks/diffusion/wan22_super_p95_dispatcher.py \
   --host "${HOST}" \
   --port "${PORT}" \
   --num-servers 4 \
@@ -33,6 +34,7 @@ python3 benchmarks/diffusion/super_p95_dispatcher.py \
   --model "${MODEL}" \
   --backend-start-port "${BACKEND_START_PORT}" \
   --backend-hardware-profiles "${HARDWARE_PROFILE}" \
+  --wan22-estimator-profile "${WAN22_ESTIMATOR_PROFILE}" \
   --backend-scheduler super_p95_step \
   --quota-every "${QUOTA_EVERY}" \
   --quota-amount "${QUOTA_AMOUNT}" \

@@ -319,6 +319,7 @@ class SuperP95Dispatcher:
         request_timeout_s: float,
         long_request_ratio: float = 1.5,
         normal_routing_policy: str = "assigned_load",
+        service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
     ) -> None:
@@ -343,6 +344,7 @@ class SuperP95Dispatcher:
         if normal_routing_policy not in {"assigned_load", "central_pull_max_risk"}:
             raise ValueError("normal_routing_policy must be 'assigned_load' or 'central_pull_max_risk'")
         self.normal_routing_policy = normal_routing_policy
+        self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
         self.arrival_counter = 0
@@ -608,6 +610,7 @@ class SuperP95Dispatcher:
                 "status": "healthy" if overall_healthy else "degraded",
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
+                "service_time_estimator": self.service_time_estimator_name,
                 "central_queue_depth": central_queue_depth,
                 "central_queue_max_depth": central_queue_max_depth,
                 "central_pull_dispatches": central_pull_dispatches,
@@ -1127,8 +1130,11 @@ def build_app(dispatcher: SuperP95Dispatcher) -> FastAPI:
     return app
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="super_p95 dispatcher for diffusion servers")
+def build_arg_parser(
+    *,
+    description: str = "super_p95 dispatcher for diffusion servers",
+) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument(
@@ -1227,7 +1233,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional directory for dispatcher/backend JSONL trace logs.",
     )
-    return parser.parse_args()
+    return parser
+
+
+def parse_args() -> argparse.Namespace:
+    return build_arg_parser().parse_args()
 
 
 def _parse_backend_env(values: list[str]) -> dict[str, str]:
@@ -1293,7 +1303,12 @@ def _build_managed_specs(
     ]
 
 
-def build_dispatcher_from_args(args: argparse.Namespace) -> SuperP95Dispatcher:
+def build_dispatcher_from_args(
+    args: argparse.Namespace,
+    *,
+    dispatcher_cls: type[SuperP95Dispatcher] = SuperP95Dispatcher,
+    dispatcher_kwargs: dict[str, Any] | None = None,
+) -> SuperP95Dispatcher:
     manual_urls = [url.rstrip("/") for url in (args.backend_urls or [])]
     use_managed = args.num_servers is not None or args.model is not None or args.device_ids is not None
     backend_hardware_profiles_arg = getattr(args, "backend_hardware_profiles", None)
@@ -1342,7 +1357,7 @@ def build_dispatcher_from_args(args: argparse.Namespace) -> SuperP95Dispatcher:
             log_dir=args.backend_log_dir,
         )
 
-    return SuperP95Dispatcher(
+    return dispatcher_cls(
         backend_urls=backend_urls,
         backend_hardware_profiles=_parse_backend_hardware_profiles(backend_hardware_profiles_arg, len(backend_urls)),
         quota_every=args.quota_every,
@@ -1358,6 +1373,7 @@ def build_dispatcher_from_args(args: argparse.Namespace) -> SuperP95Dispatcher:
         ),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,
+        **(dispatcher_kwargs or {}),
     )
 
 

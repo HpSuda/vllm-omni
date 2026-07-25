@@ -99,6 +99,24 @@ dispatcher 运行期间四个 backend 始终健康。中央 Normal 队列的峰�
 加入请求级服务时间扰动；调度策略本身需要限制“只保护最老/最大请求而扩大中部
 等待”的风险。当前代码可以保留为实验开关，但不应作为默认方案。
 
+## 后续 estimator 拆分
+
+上述 NPU 数据使用的是原通用 dispatcher 的 `production` 估时，即
+38.07/71.34/119.71s。验证后新增了 Wan2.2 专用 dispatcher，并将估时配置与
+Qwen-Image 显式隔离：
+
+- `production`：38.07/71.34/119.71s；
+- `2xusp4`：46.461/86.869/188.720s；
+- `4xusp2`：68.602/132.733/357.126s。
+
+当前 4×USP2 Central Pull 启动脚本默认使用 `4xusp2`。这是待验证的新配置，
+**不属于本报告上面的 NPU 实测结果**。如需复现本报告口径，应设置：
+
+```bash
+WAN22_ESTIMATOR_PROFILE=production \
+bash benchmarks/diffusion/run_wan22_super_p95_dispatcher_4x2_central_pull.sh
+```
+
 ## 复现与产物
 
 代码分支：
