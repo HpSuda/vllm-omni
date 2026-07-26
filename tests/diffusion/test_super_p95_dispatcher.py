@@ -335,6 +335,112 @@ def test_central_pull_still_dispatches_tail_without_normal_capacity() -> None:
     assert dispatcher.backends[0].inflight_sacrificial_requests == 1
 
 
+def test_protected_drain_tail_waits_for_target_backend_normal(monkeypatch) -> None:
+    now_s = 0.0
+    monkeypatch.setattr(dispatcher_module.time, "perf_counter", lambda: now_s)
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy="central_pull_cost_damped_risk",
+        tail_dispatch_mode="protected_drain",
+    )
+    short = {
+        "width": "854",
+        "height": "480",
+        "num_inference_steps": "3",
+        "num_frames": "80",
+    }
+    long = {
+        "request_id": "tail-0",
+        "width": "1280",
+        "height": "720",
+        "num_inference_steps": "6",
+        "num_frames": "80",
+    }
+
+    async def _run():
+        nonlocal now_s
+        normal = await dispatcher._choose_backend("/v1/videos", short)
+        dispatcher.credits = 1
+        tail_task = asyncio.create_task(dispatcher._choose_backend("/v1/videos", long))
+        await asyncio.sleep(0)
+
+        assert not tail_task.done()
+        assert len(dispatcher._pending_tail_dispatches) == 1
+        assert dispatcher.backends[0].inflight_sacrificial_requests == 1
+
+        now_s = 25.0
+        await dispatcher._mark_failed_response(normal, elapsed_s=1.0)
+        tail = await tail_task
+        await dispatcher._mark_failed_response(tail, elapsed_s=1.0)
+        return tail
+
+    tail = asyncio.run(_run())
+
+    assert tail.is_sacrificial is True
+    assert tail.central_wait_s == pytest.approx(25.0)
+    assert dispatcher.tail_gate_releases == 1
+    assert dispatcher.tail_gate_wait_total_s == pytest.approx(25.0)
+    assert dispatcher.backends[0].inflight_sacrificial_requests == 0
+
+
+def test_protected_drain_tail_yields_to_pending_central_normal() -> None:
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy="central_pull_cost_damped_risk",
+        tail_dispatch_mode="protected_drain",
+    )
+    short = {
+        "width": "854",
+        "height": "480",
+        "num_inference_steps": "3",
+        "num_frames": "80",
+    }
+    long = {
+        "request_id": "tail-0",
+        "width": "1280",
+        "height": "720",
+        "num_inference_steps": "6",
+        "num_frames": "80",
+    }
+
+    async def _run():
+        incumbent = await dispatcher._choose_backend("/v1/videos", short)
+        queued_normal_task = asyncio.create_task(dispatcher._choose_backend("/v1/videos", short))
+        await asyncio.sleep(0)
+        dispatcher.credits = 1
+        tail_task = asyncio.create_task(dispatcher._choose_backend("/v1/videos", long))
+        await asyncio.sleep(0)
+
+        await dispatcher._mark_failed_response(incumbent, elapsed_s=1.0)
+        queued_normal = await queued_normal_task
+        assert not tail_task.done()
+        assert len(dispatcher._pending_normal_dispatches) == 0
+        assert len(dispatcher._pending_tail_dispatches) == 1
+
+        await dispatcher._mark_failed_response(queued_normal, elapsed_s=1.0)
+        tail = await tail_task
+        await dispatcher._mark_failed_response(tail, elapsed_s=1.0)
+        return tail
+
+    tail = asyncio.run(_run())
+
+    assert tail.is_sacrificial is True
+    assert dispatcher.tail_gate_releases == 1
+    assert dispatcher.central_pull_dispatches == 2
+
+
 def test_tail_pack_reuses_existing_tail_backend() -> None:
     dispatcher = SuperP95Dispatcher(
         backend_urls=[
@@ -384,4 +490,18 @@ def test_dispatcher_rejects_unknown_tail_routing_mode() -> None:
             sacrificial_load_factor=0.1,
             request_timeout_s=30.0,
             tail_routing_mode="random",
+        )
+
+
+def test_dispatcher_rejects_unknown_tail_dispatch_mode() -> None:
+    with pytest.raises(ValueError, match="tail_dispatch_mode"):
+        SuperP95Dispatcher(
+            backend_urls=["http://backend-0"],
+            backend_hardware_profiles=None,
+            quota_every=20,
+            quota_amount=1,
+            threshold_ratio=0.8,
+            sacrificial_load_factor=0.1,
+            request_timeout_s=30.0,
+            tail_dispatch_mode="random",
         )

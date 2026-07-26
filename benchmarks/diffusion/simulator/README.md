@@ -60,6 +60,22 @@ python3 -m benchmarks.diffusion.simulator \
   --trace-output results/simulator/events.jsonl
 ```
 
+Run the calibrated 8×USP1 / 50-request Tail Gate candidate or its paired
+1,000-seed robustness sweep:
+
+```bash
+python3 -m benchmarks.diffusion.simulator \
+  --config benchmarks/diffusion/simulator/configs/wan22_8xusp1_tail_gate_50.yaml
+
+python3 -m benchmarks.diffusion.simulator.sweep \
+  --matrix benchmarks/diffusion/simulator/configs/wan22_8xusp1_tail_gate_50_robustness.yaml
+```
+
+This candidate keeps the existing online Tail budget and Tail Pack placement.
+It changes only Tail start timing: when protected Normal work is already
+waiting, the Tail stays gated until the central Normal queue and its selected
+backend's Normal work drain. It does not inspect the final request count.
+
 Override existing YAML fields without creating another file:
 
 ```bash

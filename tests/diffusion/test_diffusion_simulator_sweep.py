@@ -294,6 +294,36 @@ def test_bundled_4xusp2_cost_damped_risk_robustness_matrix_is_online() -> None:
                 assert scheduler["protected_pull_risk_beta"] == pytest.approx(0.5)
 
 
+def test_bundled_8xusp1_tail_gate_robustness_matrix_is_online() -> None:
+    matrix = load_sweep_matrix(_SIMULATOR_CONFIGS / "wan22_8xusp1_tail_gate_50_robustness.yaml")
+
+    assert matrix.seed == 90042
+    assert matrix.runs == 1000
+    assert len(matrix.scenarios) == 2
+    assert len(matrix.variants) == 3
+
+    for scenario in matrix.scenarios:
+        for variant in matrix.variants:
+            config_path = variant.config_path or scenario.config_path
+            assert config_path is not None
+            config = load_experiment_config(
+                config_path,
+                [*scenario.overrides, *variant.overrides],
+            )
+            scheduler = config.policy.scheduler.options
+            classifier = config.policy.classifier.options
+            assert config.workload.num_requests == 50
+            assert config.workload.request_rate == pytest.approx(0.05)
+            assert len(config.topology.backends) == 8
+            assert {backend.devices for backend in config.topology.backends} == {1}
+            assert classifier["quota_every"] == 20
+            assert classifier["quota_amount"] == 1
+            assert "max_sacrificial" not in classifier
+            assert "credit_release_requests" not in classifier
+            assert scheduler["global_protected_pull"] is True
+            assert scheduler["protected_pull_order"] == "cost_damped_risk"
+
+
 @pytest.mark.parametrize(
     ("filename", "seed", "runs", "variant_count"),
     [

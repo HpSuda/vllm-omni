@@ -2859,6 +2859,36 @@ def test_cost_damped_risk_4xusp2_preset_uses_new_estimator() -> None:
     assert scheduler["protected_pull_cost_s"] == pytest.approx(0.5)
 
 
+def test_tail_gate_8xusp1_preset_uses_latest_trace_calibration() -> None:
+    config = load_experiment_config(_SIMULATOR_CONFIGS / "wan22_8xusp1_tail_gate_50.yaml")
+    scheduler = config.policy.scheduler.options
+
+    assert config.workload.num_requests == 50
+    assert config.workload.request_rate == pytest.approx(0.05)
+    assert len(config.topology.backends) == 8
+    assert {backend.devices for backend in config.topology.backends} == {1}
+    assert [request_type.nominal_service_s for request_type in config.workload.request_types] == pytest.approx(
+        [
+            106.19037452572957,
+            221.95944084071866,
+            628.089346267283,
+        ]
+    )
+    assert [request_type.estimated_service_s for request_type in config.workload.request_types] == pytest.approx(
+        [
+            110.724,
+            219.548,
+            612.299,
+        ]
+    )
+    assert config.service.actual_jitter_sigma == pytest.approx(0.011468315167067403)
+    assert config.policy.router.options["tail_mode"] == "pack"
+    assert scheduler["global_protected_pull"] is True
+    assert scheduler["protected_pull_order"] == "cost_damped_risk"
+    assert scheduler["protected_pull_risk_beta"] == pytest.approx(0.85)
+    assert scheduler["protected_pull_tail_head_start"] is False
+
+
 def _analytic_small_config() -> dict[str, Any]:
     raw = _raw_config(
         num_requests=1,

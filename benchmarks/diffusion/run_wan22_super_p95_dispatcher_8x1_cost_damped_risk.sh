@@ -12,6 +12,7 @@ HARDWARE_PROFILE="${HARDWARE_PROFILE:-910B3}"
 WAN22_ESTIMATOR_PROFILE="${WAN22_ESTIMATOR_PROFILE:-8xusp1_inferred}"
 CENTRAL_PULL_RISK_BETA="${CENTRAL_PULL_RISK_BETA:-0.5}"
 TAIL_ROUTING_MODE="${TAIL_ROUTING_MODE:-spread}"
+TAIL_DISPATCH_MODE="${TAIL_DISPATCH_MODE:-immediate}"
 REQUEST_TIMEOUT_S="${REQUEST_TIMEOUT_S:-1000000}"
 BACKEND_HEALTH_TIMEOUT_S="${BACKEND_HEALTH_TIMEOUT_S:-1800}"
 BACKEND_HEALTH_POLL_INTERVAL_S="${BACKEND_HEALTH_POLL_INTERVAL_S:-10}"
@@ -46,6 +47,7 @@ python3 benchmarks/diffusion/wan22_super_p95_dispatcher.py \
   --normal-routing-policy central_pull_cost_damped_risk \
   --central-pull-risk-beta "${CENTRAL_PULL_RISK_BETA}" \
   --tail-routing-mode "${TAIL_ROUTING_MODE}" \
+  --tail-dispatch-mode "${TAIL_DISPATCH_MODE}" \
   --backend-log-dir "${BACKEND_LOG_DIR}" \
   --trace-log-dir "${TRACE_LOG_DIR}" \
   --request-timeout-s "${REQUEST_TIMEOUT_S}" \

@@ -1,0 +1,29 @@
+version: 1
+name: wan22-8xusp1-tail-gate-50-robustness
+seed: 90042
+runs: 1000
+baseline: Cost-Damped Risk beta=0.95 + Tail Pack
+
+scenarios:
+  - name: equal backend speeds
+    config: wan22_8xusp1_tail_gate_50.yaml
+  - name: measured backend speeds
+    config: wan22_8xusp1_tail_gate_50.yaml
+    overrides:
+      - topology.speed_factors=[0.9844757677460697,1.0165156007462763,1.0062265677414404,0.9865718307020309,1.0077428186120623,0.9923210558678576,0.996996597606321,1.0042496652350836]
+
+variants:
+  - name: Cost-Damped Risk beta=0.95 + Tail Pack
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.95
+      - policy.scheduler.protected_pull_tail_head_start=true
+
+  - name: Cost-Damped Risk beta=0.95 + Tail Pack + Tail Gate
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.95
+      - policy.scheduler.protected_pull_tail_head_start=false
+
+  - name: Cost-Damped Risk beta=0.85 + Tail Pack + Tail Gate
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.85
+      - policy.scheduler.protected_pull_tail_head_start=false

@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
@@ -43,6 +43,10 @@ _QWEN_SMALL_IMAGE_MAX_PIXELS = 768 * 768
 _CENTRAL_PULL_POLICIES = {
     "central_pull_max_risk",
     "central_pull_cost_damped_risk",
+}
+_TAIL_DISPATCH_MODES = {
+    "immediate",
+    "protected_drain",
 }
 
 
@@ -98,6 +102,14 @@ class PendingNormalDispatch:
     quota_added: int
     global_max_service_s: float
     batch_key: tuple[Any, ...] | None
+    future: asyncio.Future[DispatchDecision]
+
+
+@dataclass
+class PendingTailDispatch:
+    request_id: str
+    arrival_time_s: float
+    decision: DispatchDecision
     future: asyncio.Future[DispatchDecision]
 
 
@@ -319,6 +331,7 @@ class SuperP95Dispatcher:
         request_timeout_s: float,
         long_request_ratio: float = 1.5,
         tail_routing_mode: str = "spread",
+        tail_dispatch_mode: str = "immediate",
         normal_routing_policy: str = "assigned_load",
         central_pull_risk_beta: float = 0.5,
         service_time_estimator_name: str = "auto",
@@ -346,6 +359,10 @@ class SuperP95Dispatcher:
         if tail_routing_mode not in {"spread", "pack", "sink"}:
             raise ValueError("tail_routing_mode must be one of: pack, sink, spread")
         self.tail_routing_mode = tail_routing_mode
+        if tail_dispatch_mode not in _TAIL_DISPATCH_MODES:
+            choices = ", ".join(sorted(_TAIL_DISPATCH_MODES))
+            raise ValueError(f"tail_dispatch_mode must be one of: {choices}")
+        self.tail_dispatch_mode = tail_dispatch_mode
         valid_normal_routing_policies = {"assigned_load", *_CENTRAL_PULL_POLICIES}
         if normal_routing_policy not in valid_normal_routing_policies:
             choices = ", ".join(sorted(valid_normal_routing_policies))
@@ -370,7 +387,11 @@ class SuperP95Dispatcher:
         self.central_pull_dispatches = 0
         self.central_queue_max_depth = 0
         self.central_wait_total_s = 0.0
+        self.tail_gate_releases = 0
+        self.tail_gate_wait_total_s = 0.0
+        self.tail_gate_queue_max_depth = 0
         self._pending_normal_dispatches: list[PendingNormalDispatch] = []
+        self._pending_tail_dispatches: list[PendingTailDispatch] = []
         self._client: httpx.AsyncClient | None = None
         self._backend_launcher = backend_launcher
         self._video_backend_by_id: dict[str, int] = {}
@@ -396,6 +417,11 @@ class SuperP95Dispatcher:
                 if not pending.future.done():
                     pending.future.set_exception(RuntimeError("super_p95 dispatcher is shutting down"))
             self._pending_normal_dispatches.clear()
+            for pending in self._pending_tail_dispatches:
+                self._rollback_pending_tail_locked(pending)
+                if not pending.future.done():
+                    pending.future.set_exception(RuntimeError("super_p95 dispatcher is shutting down"))
+            self._pending_tail_dispatches.clear()
         if self._client is not None:
             await self._client.aclose()
             self._client = None
@@ -434,6 +460,12 @@ class SuperP95Dispatcher:
             central_risk_beta=decision.central_risk_beta,
             normal_routing_policy=self.normal_routing_policy,
             tail_routing_mode=self.tail_routing_mode,
+            tail_dispatch_mode=self.tail_dispatch_mode,
+            tail_gate_wait_s=(
+                decision.central_wait_s
+                if decision.is_sacrificial and self.tail_dispatch_mode == "protected_drain"
+                else None
+            ),
             queue_class="tail" if decision.is_sacrificial else "normal",
             service_time_estimator=self.service_time_estimator_name,
             **_trace_request_fields(path, body),
@@ -491,6 +523,13 @@ class SuperP95Dispatcher:
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
             normal_routing_policy=self.normal_routing_policy,
+            tail_routing_mode=self.tail_routing_mode,
+            tail_dispatch_mode=self.tail_dispatch_mode,
+            tail_gate_wait_s=(
+                decision.central_wait_s
+                if decision.is_sacrificial and self.tail_dispatch_mode == "protected_drain"
+                else None
+            ),
             queue_class="tail" if decision.is_sacrificial else "normal",
             service_time_estimator=self.service_time_estimator_name,
             **_trace_request_fields(path, body),
@@ -736,6 +775,10 @@ class SuperP95Dispatcher:
             central_queue_depth = len(self._pending_normal_dispatches)
             central_queue_max_depth = self.central_queue_max_depth
             central_pull_dispatches = self.central_pull_dispatches
+            tail_gate_queue_depth = len(self._pending_tail_dispatches)
+            tail_gate_queue_max_depth = self.tail_gate_queue_max_depth
+            tail_gate_releases = self.tail_gate_releases
+            tail_gate_wait_total_s = self.tail_gate_wait_total_s
         return JSONResponse(
             status_code=200 if overall_healthy else 503,
             content={
@@ -744,12 +787,17 @@ class SuperP95Dispatcher:
                 "normal_routing_policy": self.normal_routing_policy,
                 "central_pull_risk_beta": self.central_pull_risk_beta,
                 "tail_routing_mode": self.tail_routing_mode,
+                "tail_dispatch_mode": self.tail_dispatch_mode,
                 "service_time_estimator": self.service_time_estimator_name,
                 "request_trace_enabled": self.trace_log_file is not None,
                 "trace_log_file": self.trace_log_file,
                 "central_queue_depth": central_queue_depth,
                 "central_queue_max_depth": central_queue_max_depth,
                 "central_pull_dispatches": central_pull_dispatches,
+                "tail_gate_queue_depth": tail_gate_queue_depth,
+                "tail_gate_queue_max_depth": tail_gate_queue_max_depth,
+                "tail_gate_releases": tail_gate_releases,
+                "tail_gate_wait_total_s": tail_gate_wait_total_s,
             },
         )
 
@@ -759,7 +807,8 @@ class SuperP95Dispatcher:
             self._estimate_service_s(path, body, backend.hardware_profile) for backend in self.backends
         ]
         estimated_service_s = min(estimated_service_s_by_backend)
-        pending: PendingNormalDispatch | None = None
+        pending_normal: PendingNormalDispatch | None = None
+        pending_tail: PendingTailDispatch | None = None
         async with self._lock:
             self.arrival_counter += 1
             arrival_counter = self.arrival_counter
@@ -786,7 +835,7 @@ class SuperP95Dispatcher:
             batch_key = None if is_sacrificial else self._batch_routing_key(path, body)
             if not is_sacrificial and self.normal_routing_policy in _CENTRAL_PULL_POLICIES:
                 future = asyncio.get_running_loop().create_future()
-                pending = PendingNormalDispatch(
+                pending_normal = PendingNormalDispatch(
                     arrival_counter=arrival_counter,
                     arrival_time_s=arrival_time_s,
                     estimated_service_s_by_backend=tuple(estimated_service_s_by_backend),
@@ -797,7 +846,7 @@ class SuperP95Dispatcher:
                     batch_key=batch_key,
                     future=future,
                 )
-                self._pending_normal_dispatches.append(pending)
+                self._pending_normal_dispatches.append(pending_normal)
                 self.central_queue_max_depth = max(
                     self.central_queue_max_depth,
                     len(self._pending_normal_dispatches),
@@ -818,6 +867,44 @@ class SuperP95Dispatcher:
                     **_trace_request_fields(path, body),
                 )
                 self._assign_waiting_normals_locked()
+            elif is_sacrificial and self.tail_dispatch_mode == "protected_drain":
+                decision = self._bind_request_locked(
+                    estimated_service_s_by_backend=estimated_service_s_by_backend,
+                    is_sacrificial=True,
+                    arrival_counter=arrival_counter,
+                    credits_before=credits_before,
+                    credits_after=self.credits,
+                    quota_added=quota_added,
+                    global_max_service_s=self.global_max_service_s,
+                    batch_key=None,
+                    central_wait_s=0.0,
+                )
+                future = asyncio.get_running_loop().create_future()
+                pending_tail = PendingTailDispatch(
+                    request_id=str(body.get("request_id", "")),
+                    arrival_time_s=arrival_time_s,
+                    decision=decision,
+                    future=future,
+                )
+                self._pending_tail_dispatches.append(pending_tail)
+                self.tail_gate_queue_max_depth = max(
+                    self.tail_gate_queue_max_depth,
+                    len(self._pending_tail_dispatches),
+                )
+                write_trace_event(
+                    self.trace_log_file,
+                    "tail_gate_enqueue",
+                    node="dispatcher",
+                    request_id=pending_tail.request_id or None,
+                    arrival_counter=arrival_counter,
+                    backend=self.backends[decision.backend_index].name,
+                    estimated_service_s=decision.estimated_service_s,
+                    central_queue_depth=len(self._pending_normal_dispatches),
+                    tail_gate_queue_depth=len(self._pending_tail_dispatches),
+                    tail_dispatch_mode=self.tail_dispatch_mode,
+                    **_trace_request_fields(path, body),
+                )
+                self._assign_waiting_normals_locked()
             else:
                 if not is_sacrificial:
                     self.normal_dispatches += 1
@@ -833,15 +920,31 @@ class SuperP95Dispatcher:
                     central_wait_s=0.0,
                 )
 
-        assert pending is not None
+        assert pending_normal is not None or pending_tail is not None
         try:
-            return await pending.future
+            if pending_normal is not None:
+                return await pending_normal.future
+            assert pending_tail is not None
+            return await pending_tail.future
         except BaseException:
             async with self._lock:
-                with suppress(ValueError):
-                    self._pending_normal_dispatches.remove(pending)
-                if not pending.future.done():
-                    pending.future.cancel()
+                if pending_normal is not None:
+                    with suppress(ValueError):
+                        self._pending_normal_dispatches.remove(pending_normal)
+                    if not pending_normal.future.done():
+                        pending_normal.future.cancel()
+                    self._assign_waiting_normals_locked()
+                else:
+                    assert pending_tail is not None
+                    removed = False
+                    with suppress(ValueError):
+                        self._pending_tail_dispatches.remove(pending_tail)
+                        removed = True
+                    if removed:
+                        self._rollback_pending_tail_locked(pending_tail)
+                    if not pending_tail.future.done():
+                        pending_tail.future.cancel()
+                    self._assign_waiting_normals_locked()
             raise
 
     def _bind_request_locked(
@@ -919,7 +1022,7 @@ class SuperP95Dispatcher:
                 idx for idx, backend in enumerate(self.backends) if backend.inflight_normal_requests == 0
             ]
             if not available_backend_indices:
-                return
+                break
 
             backend_index = min(
                 available_backend_indices,
@@ -964,6 +1067,47 @@ class SuperP95Dispatcher:
             )
             if not selected.future.done():
                 selected.future.set_result(decision)
+        self._release_waiting_tails_locked()
+
+    def _release_waiting_tails_locked(self) -> None:
+        if self.tail_dispatch_mode != "protected_drain":
+            return
+        if self._pending_normal_dispatches:
+            return
+
+        now_s = time.perf_counter()
+        for pending in tuple(self._pending_tail_dispatches):
+            backend = self.backends[pending.decision.backend_index]
+            if backend.inflight_normal_requests > 0:
+                continue
+            self._pending_tail_dispatches.remove(pending)
+            central_wait_s = max(now_s - pending.arrival_time_s, 0.0)
+            decision = replace(
+                pending.decision,
+                central_wait_s=central_wait_s,
+            )
+            self.tail_gate_releases += 1
+            self.tail_gate_wait_total_s += central_wait_s
+            write_trace_event(
+                self.trace_log_file,
+                "tail_gate_release",
+                node="dispatcher",
+                request_id=pending.request_id or None,
+                arrival_counter=decision.arrival_counter,
+                backend=backend.name,
+                estimated_service_s=decision.estimated_service_s,
+                central_wait_s=central_wait_s,
+                central_queue_depth=len(self._pending_normal_dispatches),
+                tail_gate_queue_depth=len(self._pending_tail_dispatches),
+                tail_dispatch_mode=self.tail_dispatch_mode,
+            )
+            if not pending.future.done():
+                pending.future.set_result(decision)
+
+    def _rollback_pending_tail_locked(self, pending: PendingTailDispatch) -> None:
+        backend = self.backends[pending.decision.backend_index]
+        self._dec_inflight(backend, is_sacrificial=True)
+        self._fallback_remove_estimated_load(backend, pending.decision)
 
     def _central_pull_beta(self) -> float:
         if self.normal_routing_policy == "central_pull_max_risk":
@@ -1466,6 +1610,17 @@ def build_arg_parser(
         ),
     )
     parser.add_argument(
+        "--tail-dispatch-mode",
+        choices=tuple(sorted(_TAIL_DISPATCH_MODES)),
+        default="immediate",
+        help=(
+            "Tail start gate. immediate forwards Tail requests as soon as they "
+            "are classified; protected_drain reserves the selected backend but "
+            "waits until the central Normal queue and that backend's Normal "
+            "work have drained."
+        ),
+    )
+    parser.add_argument(
         "--normal-routing-policy",
         choices=("assigned_load", "central_pull_max_risk", "central_pull_cost_damped_risk"),
         default="assigned_load",
@@ -1631,6 +1786,7 @@ def build_dispatcher_from_args(
         sacrificial_load_factor=args.sacrificial_load_factor,
         request_timeout_s=args.request_timeout_s,
         tail_routing_mode=getattr(args, "tail_routing_mode", "spread"),
+        tail_dispatch_mode=getattr(args, "tail_dispatch_mode", "immediate"),
         normal_routing_policy=getattr(
             args,
             "normal_routing_policy",
