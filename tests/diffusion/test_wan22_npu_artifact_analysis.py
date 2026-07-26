@@ -176,6 +176,11 @@ def test_analyze_artifact_validates_and_reports_type7_and_calibration(tmp_path) 
     assert report["tail"]["requests"][0]["request_id"] == "request-00009"
     assert report["tail"]["preemption_count"] == 2
     assert report["per_workload_class"]["short"]["exclusive_service_s"]["mean"] == 118.0
+    assert report["per_backend"]["backend-0"]["active_compute_s"] == pytest.approx(45.0)
+    assert report["per_backend"]["backend-0"]["active_utilization"] == pytest.approx(0.09)
+    assert report["per_backend"]["backend-1"]["active_compute_s"] == pytest.approx(43.0)
+    assert report["per_backend"]["backend-1"]["normal_request_count"] == 4
+    assert report["per_backend"]["backend-1"]["tail_request_count"] == 1
 
     calibration = report["clean_normal_calibration"]
     assert calibration["request_count_before_trimming"] == 9
@@ -187,6 +192,8 @@ def test_analyze_artifact_validates_and_reports_type7_and_calibration(tmp_path) 
     assert "NumPy Type-7 P95 Boundary" in markdown
     assert "All clean samples" in markdown
     assert "Per-class 10%-trimmed samples" in markdown
+    assert "Per-Backend Execution" in markdown
+    assert "45.000" in markdown
 
 
 def test_clean_normal_calibration_keeps_full_sigma_and_trimmed_robust_center_separate() -> None:

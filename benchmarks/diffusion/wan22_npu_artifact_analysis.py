@@ -93,6 +93,7 @@ def analyze_artifact(
     }
     _validate_reported_counts(trace_summary, counts)
     raw_validation = _validate_raw_trace(raw_events, measured_rows, raw_files)
+    _add_active_compute(measured_rows, raw_events)
 
     latencies = [_finite_number(row, "e2e_latency_s") for row in measured_rows]
     p95 = percentile_type7_boundary(measured_rows, "e2e_latency_s", 0.95)
@@ -111,6 +112,35 @@ def analyze_artifact(
         class_metrics[workload_class] = {
             "request_count": len(class_rows),
             **metrics,
+        }
+
+    duration_s = _finite_number(result, "duration")
+    backend_metrics: dict[str, Any] = {}
+    for backend in sorted({str(row.get("backend")) for row in measured_rows}):
+        backend_rows = [row for row in measured_rows if str(row.get("backend")) == backend]
+        active_compute_s = sum(_finite_number(row, "active_compute_s") for row in backend_rows)
+        backend_metrics[backend] = {
+            "request_count": len(backend_rows),
+            "normal_request_count": sum(
+                str(row.get("queue_class", "")).lower() == "normal" for row in backend_rows
+            ),
+            "tail_request_count": sum(
+                str(row.get("queue_class", "")).lower() == "tail" for row in backend_rows
+            ),
+            "active_compute_s": active_compute_s,
+            "active_utilization": active_compute_s / duration_s,
+            "central_wait_s": _metric_summary(
+                [_finite_number(row, "central_wait_s") for row in backend_rows]
+            ),
+            "scheduler_queue_wait_s": _metric_summary(
+                [_finite_number(row, "scheduler_queue_wait_s") for row in backend_rows]
+            ),
+            "e2e_s": _metric_summary(
+                [_finite_number(row, "e2e_latency_s") for row in backend_rows]
+            ),
+            "preemption_count": sum(
+                _nonnegative_int(row, "scheduler_preempt_count") for row in backend_rows
+            ),
         }
 
     slowest = [
@@ -159,6 +189,7 @@ def analyze_artifact(
         "p95_type7": p95,
         "slowest_requests": slowest,
         "per_workload_class": class_metrics,
+        "per_backend": backend_metrics,
         "tail": {
             "request_count": len(tail_rows),
             "preemption_count": sum(_nonnegative_int(row, "scheduler_preempt_count") for row in tail_rows),
@@ -277,6 +308,31 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
         ]
         lines.append(f"| {workload_class} | {class_report['request_count']} | " + " | ".join(cells) + " |")
+
+    lines.extend(
+        [
+            "",
+            "## Per-Backend Execution",
+            "",
+            "`active compute` is the sum of scheduler select-to-preempt/complete "
+            "intervals. Wait and E2E cells are means in seconds.",
+            "",
+            "| Backend | Requests N/T | Active compute (s) | Utilization | "
+            "Central wait | Scheduler queue | E2E | Preemptions |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for backend, backend_report in report["per_backend"].items():
+        lines.append(
+            f"| {backend} | {backend_report['normal_request_count']}/"
+            f"{backend_report['tail_request_count']} | "
+            f"{backend_report['active_compute_s']:.3f} | "
+            f"{backend_report['active_utilization']:.3%} | "
+            f"{backend_report['central_wait_s']['mean']:.3f} | "
+            f"{backend_report['scheduler_queue_wait_s']['mean']:.3f} | "
+            f"{backend_report['e2e_s']['mean']:.3f} | "
+            f"{backend_report['preemption_count']} |"
+        )
 
     lines.extend(
         [
@@ -469,6 +525,64 @@ def _add_exclusive_service(rows: list[dict[str, Any]]) -> None:
                 f"{row['request_id']} has non-positive exclusive service: {backend_s} - {scheduler_queue_s}"
             )
         row["exclusive_service_s"] = exclusive_s
+
+
+def _add_active_compute(
+    rows: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+) -> None:
+    """Add scheduler select-to-stop time for every measured request."""
+    measured_ids = {str(row["request_id"]) for row in rows}
+    video_to_request: dict[str, str] = {}
+    for event in events:
+        request_id = event.get("request_id")
+        video_id = event.get("video_id")
+        if request_id in measured_ids and isinstance(video_id, str) and video_id:
+            video_to_request[video_id] = str(request_id)
+
+    starts: dict[str, float] = {}
+    active_s: Counter[str] = Counter()
+    for event in sorted(events, key=lambda item: _finite_number(item, "ts")):
+        raw_request_id = event.get("request_id")
+        request_id = (
+            str(raw_request_id)
+            if raw_request_id in measured_ids
+            else video_to_request.get(str(raw_request_id))
+        )
+        if request_id is None:
+            continue
+        event_name = event.get("event")
+        if event_name == "scheduler_select":
+            if request_id in starts:
+                raise ArtifactValidationError(
+                    f"{request_id} has overlapping scheduler_select intervals"
+                )
+            starts[request_id] = _finite_number(event, "ts")
+        elif event_name in {"scheduler_preempt", "scheduler_complete"}:
+            start_s = starts.pop(request_id, None)
+            if start_s is None:
+                raise ArtifactValidationError(
+                    f"{request_id} has {event_name} without scheduler_select"
+                )
+            elapsed_s = _finite_number(event, "ts") - start_s
+            if elapsed_s <= 0.0:
+                raise ArtifactValidationError(
+                    f"{request_id} has non-positive active compute interval"
+                )
+            active_s[request_id] += elapsed_s
+
+    if starts:
+        raise ArtifactValidationError(
+            f"Unclosed scheduler intervals: {sorted(starts)}"
+        )
+    for row in rows:
+        request_id = str(row["request_id"])
+        value = active_s[request_id]
+        if value <= 0.0:
+            raise ArtifactValidationError(
+                f"{request_id} has no positive active compute interval"
+            )
+        row["active_compute_s"] = value
 
 
 def _validate_reported_counts(
