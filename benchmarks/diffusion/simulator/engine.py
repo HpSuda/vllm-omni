@@ -112,6 +112,7 @@ class Simulator:
         self._steals = 0
         self._global_normal_waiting_ids: list[str] = []
         self._central_pull_time_s: dict[str, float] = {}
+        self._deferred_protected_pull_cost_s: dict[str, float] = {}
         self._protected_pulls = 0
         self._central_normal_queue_max_depth = 0
         self._switch_cost_total_s = 0.0
@@ -276,6 +277,11 @@ class Simulator:
                 return None, 0.0
             if not getattr(self.scheduler, "preempt_normal_over_sacrificial", False):
                 return None, 0.0
+        if any(
+            self.requests[request_id].priority == Priority.NORMAL
+            for request_id in target.pending_ids
+        ):
+            return None, 0.0
 
         candidate_views = tuple(
             self.requests[request_id].to_view(target.config.speed) for request_id in self._global_normal_waiting_ids
@@ -512,7 +518,20 @@ class Simulator:
     def _schedule_backend(self, backend: BackendState, incumbent: SimRequest | None) -> None:
         if incumbent is None and backend.running_id is not None:
             return
-        pulled_id, protected_pull_cost_s = self._maybe_pull_protected(backend, incumbent)
+        tail_head_start = (
+            incumbent is None
+            and bool(getattr(self.scheduler, "global_protected_pull", False))
+            and bool(getattr(self.scheduler, "protected_pull_tail_head_start", False))
+            and bool(self._global_normal_waiting_ids)
+            and any(
+                self.requests[request_id].priority == Priority.SACRIFICIAL
+                for request_id in backend.pending_ids
+            )
+        )
+        if tail_head_start:
+            pulled_id, protected_pull_cost_s = None, 0.0
+        else:
+            pulled_id, protected_pull_cost_s = self._maybe_pull_protected(backend, incumbent)
         stolen_id = None if pulled_id is not None else self._maybe_steal_protected(backend, incumbent)
         pending = tuple(self.requests[request_id].to_view(backend.config.speed) for request_id in backend.pending_ids)
         if pulled_id is not None:
@@ -549,7 +568,10 @@ class Simulator:
         preemption_cost_s = 0.0
         steal_cost_s = float(getattr(self.scheduler, "steal_cost_s", 0.0)) if selected_id == stolen_id else 0.0
         if selected_id != pulled_id:
-            protected_pull_cost_s = 0.0
+            protected_pull_cost_s = self._deferred_protected_pull_cost_s.pop(
+                selected_id,
+                0.0,
+            )
         if incumbent is not None and selected_id != incumbent.request_id:
             incumbent.status = RequestStatus.WAITING
             incumbent.preemptions += 1
@@ -570,6 +592,13 @@ class Simulator:
         selected.status = RequestStatus.RUNNING
         backend.running_id = selected_id
         selected.dispatch_count += 1
+        if tail_head_start and selected.priority == Priority.SACRIFICIAL:
+            deferred_id, deferred_cost_s = self._maybe_pull_protected(
+                backend,
+                selected,
+            )
+            if deferred_id is not None:
+                self._deferred_protected_pull_cost_s[deferred_id] = deferred_cost_s
         is_resume = False
         dispatch_cost_s = preemption_cost_s + steal_cost_s + protected_pull_cost_s
         if selected.first_start_time_s is None:
@@ -780,6 +809,8 @@ class Simulator:
                 raise RuntimeError(f"backend {backend.name} retained inflight accounting")
         if self._global_normal_waiting_ids:
             raise RuntimeError("simulation retained work in the global Normal queue")
+        if self._deferred_protected_pull_cost_s:
+            raise RuntimeError("simulation retained deferred protected-pull costs")
 
         expected_busy_s = self._switch_cost_total_s + self._steal_cost_total_s + self._protected_pull_cost_total_s
         for request in self.requests.values():

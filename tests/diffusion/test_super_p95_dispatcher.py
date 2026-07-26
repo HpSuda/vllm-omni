@@ -333,3 +333,55 @@ def test_central_pull_still_dispatches_tail_without_normal_capacity() -> None:
     assert tail.is_sacrificial is True
     assert dispatcher.backends[0].inflight_normal_requests == 1
     assert dispatcher.backends[0].inflight_sacrificial_requests == 1
+
+
+def test_tail_pack_reuses_existing_tail_backend() -> None:
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=[
+            "http://backend-0",
+            "http://backend-1",
+            "http://backend-2",
+        ],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        tail_routing_mode="pack",
+        normal_routing_policy="central_pull_cost_damped_risk",
+        central_pull_risk_beta=0.95,
+    )
+    body = {
+        "width": "1280",
+        "height": "720",
+        "num_inference_steps": "6",
+        "num_frames": "80",
+    }
+    estimate = dispatcher._estimate_service_s("/v1/videos", body, "910B2")
+    dispatcher.global_min_service_s = 1.0
+    dispatcher.global_max_service_s = estimate
+    dispatcher.credits = 1
+    dispatcher.backends[1].sacrificial_load_s = estimate
+    dispatcher.backends[1].inflight_sacrificial_requests = 1
+
+    decision = asyncio.run(dispatcher._choose_backend("/v1/videos", body))
+
+    assert decision.is_sacrificial is True
+    assert decision.backend_index == 1
+    assert dispatcher.tail_routing_mode == "pack"
+    assert dispatcher.central_pull_risk_beta == pytest.approx(0.95)
+
+
+def test_dispatcher_rejects_unknown_tail_routing_mode() -> None:
+    with pytest.raises(ValueError, match="tail_routing_mode"):
+        SuperP95Dispatcher(
+            backend_urls=["http://backend-0"],
+            backend_hardware_profiles=None,
+            quota_every=20,
+            quota_amount=1,
+            threshold_ratio=0.8,
+            sacrificial_load_factor=0.1,
+            request_timeout_s=30.0,
+            tail_routing_mode="random",
+        )

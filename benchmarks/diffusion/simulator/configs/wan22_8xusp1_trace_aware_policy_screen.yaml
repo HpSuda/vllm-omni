@@ -1,0 +1,137 @@
+version: 1
+name: wan22-8xusp1-trace-aware-policy-screen
+seed: 20042
+runs: 200
+baseline: Central Pull + Cost-Damped Risk beta=0.5
+
+# All variants are online: they use only arrived requests, current wait,
+# estimator output, central queue contents, and backend load state.
+scenarios:
+  - name: 50 requests at 0.05 rps
+    config: wan22_8xusp1_calibrated_trace_pool.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+  - name: 100 requests at 0.03 rps
+    config: wan22_8xusp1_calibrated_trace_pool.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+
+variants:
+  - name: Central Pull + Cost-Damped Risk beta=0.5
+
+  - name: Central Pull + Max Risk
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+
+  - name: Central Pull + Cost-Damped Risk beta=0.75
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.75
+
+  - name: Central Pull + Cost-Damped Risk beta=0.95
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.95
+
+  - name: Central Pull + Cost-Damped Risk beta=1.25
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=1.25
+
+  - name: Central Pull + Risk-Slack SRPT 25s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=25.0
+
+  - name: Central Pull + Risk-Slack SRPT 50s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=50.0
+
+  - name: Central Pull + Risk-Slack SRPT 100s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=100.0
+
+  - name: Central Pull + Risk-Slack SRPT 200s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=200.0
+
+  - name: Central Pull + Risk-Slack SRPT 300s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=300.0
+
+  - name: Central Pull + Risk-Slack SRPT 500s
+    overrides:
+      - policy.scheduler.protected_pull_order=risk_slack_srpt
+      - policy.scheduler.protected_pull_risk_slack_s=500.0
+
+  - name: Central Pull + Guarded Max Risk min10 max1
+    overrides:
+      - policy.scheduler.protected_pull_order=guarded_max_risk
+      - policy.scheduler.protected_pull_guard_fraction=0.05
+      - policy.scheduler.protected_pull_guard_max=1
+      - policy.scheduler.protected_pull_guard_min_pending=10
+
+  - name: Central Pull + Guarded Max Risk min20 max1
+    overrides:
+      - policy.scheduler.protected_pull_order=guarded_max_risk
+      - policy.scheduler.protected_pull_guard_fraction=0.05
+      - policy.scheduler.protected_pull_guard_max=1
+      - policy.scheduler.protected_pull_guard_min_pending=20
+
+  - name: Central Pull + Guarded Max Risk min10 max2
+    overrides:
+      - policy.scheduler.protected_pull_order=guarded_max_risk
+      - policy.scheduler.protected_pull_guard_fraction=0.10
+      - policy.scheduler.protected_pull_guard_max=2
+      - policy.scheduler.protected_pull_guard_min_pending=10
+
+  - name: Central Pull + Guarded Max Risk min20 max2
+    overrides:
+      - policy.scheduler.protected_pull_order=guarded_max_risk
+      - policy.scheduler.protected_pull_guard_fraction=0.10
+      - policy.scheduler.protected_pull_guard_max=2
+      - policy.scheduler.protected_pull_guard_min_pending=20
+
+  - name: Central Pull + Max Risk + Tail Spread
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.router.tail_mode=spread
+
+  - name: Central Pull + Max Risk + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.router.tail_mode=pack
+
+  - name: Central Pull + Max Risk + Tail Sink
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.router.tail_mode=sink
+
+  - name: Central Pull + beta=0.95 + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=cost_damped_risk
+      - policy.scheduler.protected_pull_risk_beta=0.95
+      - policy.router.tail_mode=pack
+
+  - name: Central Pull + beta=0.95 + Tail Sink
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=cost_damped_risk
+      - policy.scheduler.protected_pull_risk_beta=0.95
+      - policy.router.tail_mode=sink
+
+  - name: Central Pull + beta=0.5 + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=cost_damped_risk
+      - policy.scheduler.protected_pull_risk_beta=0.5
+      - policy.router.tail_mode=pack

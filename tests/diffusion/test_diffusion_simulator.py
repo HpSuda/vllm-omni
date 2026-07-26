@@ -501,6 +501,11 @@ def test_new_policy_components_build_from_config() -> None:
             "global_protected_pull": False,
             "protected_pull_order": "max_risk",
             "protected_pull_risk_beta": 0.25,
+            "protected_pull_risk_slack_s": 30.0,
+            "protected_pull_guard_fraction": 0.04,
+            "protected_pull_guard_max": 2,
+            "protected_pull_guard_min_pending": 10,
+            "protected_pull_tail_head_start": True,
             "protected_pull_cost_s": 0.5,
         },
     )
@@ -526,6 +531,11 @@ def test_new_policy_components_build_from_config() -> None:
     assert simulator.scheduler.global_protected_pull is False
     assert simulator.scheduler.protected_pull_order == "max_risk"
     assert simulator.scheduler.protected_pull_risk_beta == pytest.approx(0.25)
+    assert simulator.scheduler.protected_pull_risk_slack_s == pytest.approx(30.0)
+    assert simulator.scheduler.protected_pull_guard_fraction == pytest.approx(0.04)
+    assert simulator.scheduler.protected_pull_guard_max == 2
+    assert simulator.scheduler.protected_pull_guard_min_pending == 10
+    assert simulator.scheduler.protected_pull_tail_head_start is True
     assert simulator.scheduler.protected_pull_cost_s == pytest.approx(0.5)
 
 
@@ -1569,6 +1579,31 @@ def test_two_queue_bounded_srpt_aging_forces_an_old_waiter() -> None:
             -1.0,
             "protected_pull_risk_beta cannot be negative",
         ),
+        (
+            "protected_pull_risk_slack_s",
+            -1.0,
+            "protected_pull_risk_slack_s cannot be negative",
+        ),
+        (
+            "protected_pull_guard_fraction",
+            1.0,
+            "protected_pull_guard_fraction must be in",
+        ),
+        (
+            "protected_pull_guard_max",
+            -1,
+            "protected_pull_guard_max cannot be negative",
+        ),
+        (
+            "protected_pull_guard_min_pending",
+            0,
+            "protected_pull_guard_min_pending must be positive",
+        ),
+        (
+            "protected_pull_tail_head_start",
+            1,
+            "protected_pull_tail_head_start must be a boolean",
+        ),
         ("protected_pull_cost_s", -1.0, "protected_pull_cost_s cannot be negative"),
     ],
 )
@@ -1904,6 +1939,8 @@ def test_disabled_global_protected_pull_preserves_legacy_runtime_behavior() -> N
             "cost_damped_risk",
             ["request-00000", "request-00002", "request-00001"],
         ),
+        ("risk_slack_srpt", ["request-00000", "request-00002", "request-00001"]),
+        ("guarded_max_risk", ["request-00000", "request-00002", "request-00001"]),
         ("arrival_plus_cost", ["request-00000", "request-00001", "request-00002"]),
         ("highest_response_ratio", ["request-00000", "request-00001", "request-00002"]),
     ],
@@ -1958,6 +1995,8 @@ def test_global_protected_pull_order_is_online_and_configurable(
         ("fifo", "request-0"),
         ("max_risk", "request-0"),
         ("cost_damped_risk", "request-0"),
+        ("risk_slack_srpt", "request-0"),
+        ("guarded_max_risk", "request-0"),
         ("arrival_plus_cost", "request-1"),
         ("highest_response_ratio", "request-1"),
     ],
@@ -2083,6 +2122,84 @@ def test_cost_damped_risk_beta_one_matches_max_risk_for_unstarted_work() -> None
     )
 
 
+def test_risk_slack_srpt_uses_shortest_request_inside_urgent_band() -> None:
+    older_short = _request_view(
+        0,
+        Priority.NORMAL,
+        arrival_time_s=0.0,
+        estimated_total_s=1.0,
+        estimated_remaining_s=1.0,
+    )
+    newer_long = _request_view(
+        1,
+        Priority.NORMAL,
+        arrival_time_s=90.0,
+        estimated_total_s=100.0,
+        estimated_remaining_s=100.0,
+    )
+    common = {
+        "normal_order": "fifo",
+        "sacrificial_order": "lifo",
+        "preempt_normal_over_sacrificial": True,
+        "global_protected_pull": True,
+    }
+    max_risk = TwoQueueScheduler(
+        **common,
+        protected_pull_order="max_risk",
+    )
+    slack_srpt = TwoQueueScheduler(
+        **common,
+        protected_pull_order="risk_slack_srpt",
+        protected_pull_risk_slack_s=10.0,
+    )
+
+    assert (
+        max_risk.choose_protected_pull(
+            now_s=100.0,
+            pending=(older_short, newer_long),
+        )
+        == newer_long.request_id
+    )
+    assert (
+        slack_srpt.choose_protected_pull(
+            now_s=100.0,
+            pending=(older_short, newer_long),
+        )
+        == older_short.request_id
+    )
+
+
+def test_guarded_max_risk_skips_bounded_online_risk_prefix() -> None:
+    requests = tuple(
+        _request_view(
+            index,
+            Priority.NORMAL,
+            arrival_time_s=float(index),
+            estimated_total_s=1.0,
+            estimated_remaining_s=1.0,
+        )
+        for index in range(20)
+    )
+    scheduler = TwoQueueScheduler(
+        normal_order="fifo",
+        sacrificial_order="lifo",
+        preempt_normal_over_sacrificial=True,
+        global_protected_pull=True,
+        protected_pull_order="guarded_max_risk",
+        protected_pull_guard_fraction=0.05,
+        protected_pull_guard_max=1,
+        protected_pull_guard_min_pending=20,
+    )
+
+    assert (
+        scheduler.choose_protected_pull(
+            now_s=20.0,
+            pending=requests,
+        )
+        == "request-1"
+    )
+
+
 def test_global_protected_pull_does_not_preempt_a_normal_incumbent() -> None:
     config = parse_experiment_config(
         _raw_config(
@@ -2115,6 +2232,62 @@ def test_global_protected_pull_does_not_preempt_a_normal_incumbent() -> None:
     assert [event["request_id"] for event in pulls] == ["request-00000", "request-00001"]
     assert pulls[1]["time_s"] == pytest.approx(9.0)
     assert result.requests[0]["completion_time_s"] == pytest.approx(9.0)
+
+
+def test_protected_pull_tail_head_start_matches_backend_dispatch_race() -> None:
+    def run(tail_head_start: bool):
+        config = parse_experiment_config(
+            _raw_config(
+                num_requests=3,
+                request_rate=1.0,
+                service_s=9.0,
+                steps=3,
+                backend_count=1,
+                classifier={
+                    "type": "quota_tail",
+                    "quota_every": 2,
+                    "quota_amount": 1,
+                    "threshold_ratio": 0.0,
+                    "long_request_ratio": None,
+                },
+                router={
+                    "type": "weighted_least_load",
+                    "sacrificial_load_factor": 0.1,
+                    "load_view": "assigned",
+                    "update_latency_ema": False,
+                },
+                scheduler={
+                    "type": "two_queue",
+                    "normal_order": "fifo",
+                    "sacrificial_order": "lifo",
+                    "preempt_normal_over_sacrificial": True,
+                    "global_protected_pull": True,
+                    "protected_pull_order": "fifo",
+                    "protected_pull_tail_head_start": tail_head_start,
+                    "protected_pull_cost_s": 0.0,
+                },
+            )
+        )
+        simulator = Simulator(config, collect_events=True)
+        _set_arrivals(simulator, [0.0, 0.1, 0.2])
+        return simulator.run()
+
+    legacy = run(False)
+    modeled = run(True)
+    legacy_requests = {request["request_id"]: request for request in legacy.requests}
+    modeled_requests = {request["request_id"]: request for request in modeled.requests}
+
+    assert legacy_requests["request-00001"]["priority"] == "sacrificial"
+    assert legacy_requests["request-00001"]["preemptions"] == 0
+    assert modeled_requests["request-00001"]["preemptions"] == 1
+    assert (
+        modeled_requests["request-00001"]["first_start_time_s"]
+        < modeled_requests["request-00002"]["first_start_time_s"]
+    )
+    assert (
+        legacy_requests["request-00001"]["first_start_time_s"]
+        > legacy_requests["request-00002"]["first_start_time_s"]
+    )
 
 
 def test_tail_step_boundary_pulls_global_normal_without_moving_tail() -> None:

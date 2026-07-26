@@ -960,6 +960,11 @@ class TwoQueueScheduler:
         global_protected_pull: bool = False,
         protected_pull_order: str = "fifo",
         protected_pull_risk_beta: float = 0.5,
+        protected_pull_risk_slack_s: float = 0.0,
+        protected_pull_guard_fraction: float = 0.05,
+        protected_pull_guard_max: int | None = 1,
+        protected_pull_guard_min_pending: int = 20,
+        protected_pull_tail_head_start: bool = False,
         protected_pull_cost_s: float = 0.0,
     ) -> None:
         preempt_normal_over_sacrificial = _as_bool(preempt_normal_over_sacrificial, "preempt_normal_over_sacrificial")
@@ -975,6 +980,27 @@ class TwoQueueScheduler:
         protected_pull_risk_beta = _as_float(
             protected_pull_risk_beta,
             "protected_pull_risk_beta",
+        )
+        protected_pull_risk_slack_s = _as_float(
+            protected_pull_risk_slack_s,
+            "protected_pull_risk_slack_s",
+        )
+        protected_pull_guard_fraction = _as_float(
+            protected_pull_guard_fraction,
+            "protected_pull_guard_fraction",
+        )
+        if protected_pull_guard_max is not None:
+            protected_pull_guard_max = _as_int(
+                protected_pull_guard_max,
+                "protected_pull_guard_max",
+            )
+        protected_pull_guard_min_pending = _as_int(
+            protected_pull_guard_min_pending,
+            "protected_pull_guard_min_pending",
+        )
+        protected_pull_tail_head_start = _as_bool(
+            protected_pull_tail_head_start,
+            "protected_pull_tail_head_start",
         )
         protected_pull_cost_s = _as_float(protected_pull_cost_s, "protected_pull_cost_s")
         valid_normal_orders = {
@@ -1001,12 +1027,15 @@ class TwoQueueScheduler:
             "fifo",
             "max_risk",
             "cost_damped_risk",
+            "risk_slack_srpt",
+            "guarded_max_risk",
             "arrival_plus_cost",
             "highest_response_ratio",
         }:
             raise ValueError(
                 "scheduler.protected_pull_order must be 'fifo', 'max_risk', "
-                "'cost_damped_risk', 'arrival_plus_cost', or "
+                "'cost_damped_risk', 'risk_slack_srpt', "
+                "'guarded_max_risk', 'arrival_plus_cost', or "
                 "'highest_response_ratio'"
             )
         if max_bypass is not None and max_bypass < 0:
@@ -1021,6 +1050,14 @@ class TwoQueueScheduler:
             raise ValueError("steal_cost_s cannot be negative")
         if protected_pull_risk_beta < 0.0:
             raise ValueError("protected_pull_risk_beta cannot be negative")
+        if protected_pull_risk_slack_s < 0.0:
+            raise ValueError("protected_pull_risk_slack_s cannot be negative")
+        if not 0.0 <= protected_pull_guard_fraction < 1.0:
+            raise ValueError("protected_pull_guard_fraction must be in [0, 1)")
+        if protected_pull_guard_max is not None and protected_pull_guard_max < 0:
+            raise ValueError("protected_pull_guard_max cannot be negative")
+        if protected_pull_guard_min_pending < 1:
+            raise ValueError("protected_pull_guard_min_pending must be positive")
         if protected_pull_cost_s < 0.0:
             raise ValueError("protected_pull_cost_s cannot be negative")
         if global_work_stealing and global_protected_pull:
@@ -1054,6 +1091,11 @@ class TwoQueueScheduler:
         self.global_protected_pull = global_protected_pull
         self.protected_pull_order = protected_pull_order
         self.protected_pull_risk_beta = protected_pull_risk_beta
+        self.protected_pull_risk_slack_s = protected_pull_risk_slack_s
+        self.protected_pull_guard_fraction = protected_pull_guard_fraction
+        self.protected_pull_guard_max = protected_pull_guard_max
+        self.protected_pull_guard_min_pending = protected_pull_guard_min_pending
+        self.protected_pull_tail_head_start = protected_pull_tail_head_start
         self.protected_pull_cost_s = protected_pull_cost_s
         self._bypass_counts: dict[str, int] = {}
 
@@ -1108,6 +1150,59 @@ class TwoQueueScheduler:
                 request.request_id,
             ),
         )
+
+    def _risk_slack_srpt(
+        self,
+        requests: list[RequestView],
+        now_s: float,
+    ) -> RequestView:
+        """Use SRPT only inside a configurable band below the maximum risk."""
+
+        risk_by_id = {
+            request.request_id: self._quantile_risk(request, now_s)
+            for request in requests
+        }
+        maximum_risk_s = max(risk_by_id.values())
+        urgent = [
+            request
+            for request in requests
+            if risk_by_id[request.request_id]
+            >= maximum_risk_s - self.protected_pull_risk_slack_s
+        ]
+        return min(
+            urgent,
+            key=lambda request: (
+                request.estimated_total_s,
+                -risk_by_id[request.request_id],
+                request.arrival_seq,
+                request.request_id,
+            ),
+        )
+
+    def _guarded_max_risk(
+        self,
+        requests: list[RequestView],
+        now_s: float,
+    ) -> RequestView:
+        """Leave a bounded highest-risk prefix as online P95 sink requests."""
+
+        ordered = sorted(
+            requests,
+            key=lambda request: (
+                -self._quantile_risk(request, now_s),
+                request.arrival_seq,
+                request.request_id,
+            ),
+        )
+        guard_count = 0
+        if len(ordered) >= self.protected_pull_guard_min_pending:
+            guard_count = math.floor(
+                len(ordered) * self.protected_pull_guard_fraction + 1e-12
+            )
+            if self.protected_pull_guard_max is not None:
+                guard_count = min(guard_count, self.protected_pull_guard_max)
+            guard_count = min(guard_count, len(ordered) - 1)
+        return ordered[guard_count]
 
     def _size_class_fifo(self, requests: list[RequestView]) -> RequestView:
         unknown_rank = len(self._size_class_ranks)
@@ -1215,6 +1310,10 @@ class TwoQueueScheduler:
             return self._least_laxity(normal, now_s).request_id
         if self.protected_pull_order == "cost_damped_risk":
             return self._cost_damped_risk(normal, now_s).request_id
+        if self.protected_pull_order == "risk_slack_srpt":
+            return self._risk_slack_srpt(normal, now_s).request_id
+        if self.protected_pull_order == "guarded_max_risk":
+            return self._guarded_max_risk(normal, now_s).request_id
         if self.protected_pull_order == "arrival_plus_cost":
             return self._arrival_plus_cost(normal).request_id
         return self._highest_response_ratio(normal, now_s).request_id
@@ -1486,6 +1585,11 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
                 "global_protected_pull",
                 "protected_pull_order",
                 "protected_pull_risk_beta",
+                "protected_pull_risk_slack_s",
+                "protected_pull_guard_fraction",
+                "protected_pull_guard_max",
+                "protected_pull_guard_min_pending",
+                "protected_pull_tail_head_start",
                 "protected_pull_cost_s",
             },
             "scheduler",
@@ -1529,6 +1633,30 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
             protected_pull_risk_beta=_as_float(
                 options.get("protected_pull_risk_beta", 0.5),
                 "scheduler.protected_pull_risk_beta",
+            ),
+            protected_pull_risk_slack_s=_as_float(
+                options.get("protected_pull_risk_slack_s", 0.0),
+                "scheduler.protected_pull_risk_slack_s",
+            ),
+            protected_pull_guard_fraction=_as_float(
+                options.get("protected_pull_guard_fraction", 0.05),
+                "scheduler.protected_pull_guard_fraction",
+            ),
+            protected_pull_guard_max=(
+                None
+                if options.get("protected_pull_guard_max", 1) is None
+                else _as_int(
+                    options.get("protected_pull_guard_max", 1),
+                    "scheduler.protected_pull_guard_max",
+                )
+            ),
+            protected_pull_guard_min_pending=_as_int(
+                options.get("protected_pull_guard_min_pending", 20),
+                "scheduler.protected_pull_guard_min_pending",
+            ),
+            protected_pull_tail_head_start=_as_bool(
+                options.get("protected_pull_tail_head_start", False),
+                "scheduler.protected_pull_tail_head_start",
             ),
             protected_pull_cost_s=_as_float(
                 options.get("protected_pull_cost_s", 0.0),

@@ -1,0 +1,48 @@
+version: 1
+name: wan22-8xusp1-backend-profile-candidate
+seed: 30042
+runs: 200
+baseline: Central Pull + Cost-Damped Risk beta=0.5
+
+# Backend speed factors are class-centered clean-Normal ratios pooled from the
+# traced 50- and 100-request 8xUSP1 NPU runs. The policies do not see them;
+# they only perturb actual service time to test robustness to measured backend
+# heterogeneity.
+scenarios:
+  - name: 50 requests at 0.05 rps, measured backend speeds
+    config: wan22_8xusp1_calibrated_trace_pool.yaml
+    overrides:
+      - workload.num_requests=50
+      - workload.utilization=null
+      - workload.request_rate=0.05
+      - topology.speed_factors=[0.9844757677460697,1.0165156007462763,1.0062265677414404,0.9865718307020309,1.0077428186120623,0.9923210558678576,0.996996597606321,1.0042496652350836]
+  - name: 100 requests at 0.03 rps, measured backend speeds
+    config: wan22_8xusp1_calibrated_trace_pool.yaml
+    overrides:
+      - workload.num_requests=100
+      - workload.utilization=null
+      - workload.request_rate=0.03
+      - topology.speed_factors=[0.9844757677460697,1.0165156007462763,1.0062265677414404,0.9865718307020309,1.0077428186120623,0.9923210558678576,0.996996597606321,1.0042496652350836]
+
+variants:
+  - name: Central Pull + Cost-Damped Risk beta=0.5
+
+  - name: Central Pull + beta=0.5 + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=cost_damped_risk
+      - policy.scheduler.protected_pull_risk_beta=0.5
+      - policy.router.tail_mode=pack
+
+  - name: Central Pull + beta=0.95 + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=cost_damped_risk
+      - policy.scheduler.protected_pull_risk_beta=0.95
+      - policy.router.tail_mode=pack
+
+  - name: Central Pull + Max Risk + Tail Pack
+    config: wan22_8xusp1_calibrated_trace_pool_pect.yaml
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+      - policy.router.tail_mode=pack

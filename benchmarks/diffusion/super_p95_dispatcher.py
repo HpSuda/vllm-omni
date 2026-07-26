@@ -318,6 +318,7 @@ class SuperP95Dispatcher:
         sacrificial_load_factor: float,
         request_timeout_s: float,
         long_request_ratio: float = 1.5,
+        tail_routing_mode: str = "spread",
         normal_routing_policy: str = "assigned_load",
         central_pull_risk_beta: float = 0.5,
         service_time_estimator_name: str = "auto",
@@ -342,6 +343,9 @@ class SuperP95Dispatcher:
         self.sacrificial_load_factor = sacrificial_load_factor
         self.request_timeout_s = request_timeout_s
         self.trace_log_file = trace_log_file
+        if tail_routing_mode not in {"spread", "pack", "sink"}:
+            raise ValueError("tail_routing_mode must be one of: pack, sink, spread")
+        self.tail_routing_mode = tail_routing_mode
         valid_normal_routing_policies = {"assigned_load", *_CENTRAL_PULL_POLICIES}
         if normal_routing_policy not in valid_normal_routing_policies:
             choices = ", ".join(sorted(valid_normal_routing_policies))
@@ -429,6 +433,7 @@ class SuperP95Dispatcher:
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
             normal_routing_policy=self.normal_routing_policy,
+            tail_routing_mode=self.tail_routing_mode,
             queue_class="tail" if decision.is_sacrificial else "normal",
             service_time_estimator=self.service_time_estimator_name,
             **_trace_request_fields(path, body),
@@ -738,6 +743,7 @@ class SuperP95Dispatcher:
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
                 "central_pull_risk_beta": self.central_pull_risk_beta,
+                "tail_routing_mode": self.tail_routing_mode,
                 "service_time_estimator": self.service_time_estimator_name,
                 "request_trace_enabled": self.trace_log_file is not None,
                 "trace_log_file": self.trace_log_file,
@@ -855,7 +861,11 @@ class SuperP95Dispatcher:
         backend_index: int | None = None,
     ) -> DispatchDecision:
         if backend_index is None:
-            backend_index = self._select_backend_index(batch_key)
+            backend_index = (
+                self._select_tail_backend_index()
+                if is_sacrificial
+                else self._select_backend_index(batch_key)
+            )
         backend = self.backends[backend_index]
         selected_estimated_service_s = estimated_service_s_by_backend[backend_index]
         if is_sacrificial:
@@ -974,6 +984,45 @@ class SuperP95Dispatcher:
             range(len(self.backends)),
             key=lambda idx: self.backends[idx].score_tuple(self.sacrificial_load_factor),
         )
+
+    def _select_tail_backend_index(self) -> int:
+        if self.tail_routing_mode == "pack":
+            tail_loaded = [
+                idx
+                for idx, backend in enumerate(self.backends)
+                if backend.inflight_sacrificial_requests > 0
+                or backend.sacrificial_load_s > 0.0
+            ]
+            if tail_loaded:
+                return min(
+                    tail_loaded,
+                    key=lambda idx: (
+                        -self.backends[idx].sacrificial_load_s,
+                        self.backends[idx].normal_load_s,
+                        self.backends[idx].latency_ema_s,
+                        self.backends[idx].name,
+                    ),
+                )
+            return min(
+                range(len(self.backends)),
+                key=lambda idx: (
+                    self.backends[idx].normal_load_s
+                    + self.backends[idx].sacrificial_load_s,
+                    self.backends[idx].latency_ema_s,
+                    self.backends[idx].name,
+                ),
+            )
+        if self.tail_routing_mode == "sink":
+            return min(
+                range(len(self.backends)),
+                key=lambda idx: (
+                    -self.backends[idx].normal_load_s,
+                    -self.backends[idx].sacrificial_load_s,
+                    self.backends[idx].latency_ema_s,
+                    self.backends[idx].name,
+                ),
+            )
+        return self._select_backend_index(batch_key=None)
 
     async def _apply_response_feedback(
         self,
@@ -1407,6 +1456,16 @@ def build_arg_parser(
     )
     parser.add_argument("--sacrificial-load-factor", type=float, default=0.1)
     parser.add_argument(
+        "--tail-routing-mode",
+        choices=("spread", "pack", "sink"),
+        default="spread",
+        help=(
+            "Tail backend placement. spread preserves the current least-load "
+            "behavior; pack reuses an existing Tail backend; sink chooses the "
+            "largest Normal backlog."
+        ),
+    )
+    parser.add_argument(
         "--normal-routing-policy",
         choices=("assigned_load", "central_pull_max_risk", "central_pull_cost_damped_risk"),
         default="assigned_load",
@@ -1571,6 +1630,7 @@ def build_dispatcher_from_args(
         long_request_ratio=getattr(args, "long_request_ratio", 1.5),
         sacrificial_load_factor=args.sacrificial_load_factor,
         request_timeout_s=args.request_timeout_s,
+        tail_routing_mode=getattr(args, "tail_routing_mode", "spread"),
         normal_routing_policy=getattr(
             args,
             "normal_routing_policy",
