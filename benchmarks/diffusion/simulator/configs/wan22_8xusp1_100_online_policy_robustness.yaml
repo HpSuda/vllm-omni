@@ -1,0 +1,34 @@
+version: 1
+name: wan22-8xusp1-100-online-policy-robustness
+seed: 10042
+runs: 100
+baseline: Central Pull + Cost-Damped Risk beta=0.5
+
+# Robustness-only Monte Carlo holdout using the same calibrated service model.
+# This is disjoint from the exact benchmark seed=42 trace.
+scenarios:
+  - name: 8xUSP1, 100 requests at 0.03 rps
+    config: wan22_8xusp1_calibrated_100.yaml
+
+variants:
+  - name: Central Pull + Cost-Damped Risk beta=0.5
+
+  - name: Central Pull + Cost-Damped Risk beta=0.45
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.45
+
+  - name: Central Pull + Cost-Damped Risk beta=0.70
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.70
+
+  - name: Central Pull + Cost-Damped Risk beta=0.95
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.95
+
+  - name: Central Pull + Max Risk
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+
+  - name: Central Pull + FIFO
+    overrides:
+      - policy.scheduler.protected_pull_order=fifo

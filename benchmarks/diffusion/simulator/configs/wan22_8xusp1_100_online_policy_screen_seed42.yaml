@@ -1,0 +1,94 @@
+version: 1
+name: wan22-8xusp1-100-online-policy-screen-seed42
+seed: 42
+runs: 1
+baseline: Central Pull + Cost-Damped Risk beta=0.5
+
+# Benchmark-aligned single-trace screen using service anchors calibrated from
+# clean Normal intervals in the 8xUSP1/100 NPU trace.
+scenarios:
+  - name: 8xUSP1, 100 requests at 0.03 rps, seed 42
+    config: wan22_8xusp1_calibrated_100.yaml
+
+variants:
+  - name: Central Pull + Cost-Damped Risk beta=0.5
+
+  - name: Central Pull + FIFO
+    overrides:
+      - policy.scheduler.protected_pull_order=fifo
+
+  - name: Central Pull + Max Risk
+    overrides:
+      - policy.scheduler.protected_pull_order=max_risk
+
+  - name: Central Pull + Cost-Damped Risk beta=0.10
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.10
+
+  - name: Central Pull + Cost-Damped Risk beta=0.25
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.25
+
+  - name: Central Pull + Cost-Damped Risk beta=0.35
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.35
+
+  - name: Central Pull + Cost-Damped Risk beta=0.45
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.45
+
+  - name: Central Pull + Cost-Damped Risk beta=0.65
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.65
+
+  - name: Central Pull + Cost-Damped Risk beta=0.70
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.70
+
+  - name: Central Pull + Cost-Damped Risk beta=0.75
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.75
+
+  - name: Central Pull + Cost-Damped Risk beta=0.95
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=0.95
+
+  - name: Central Pull + Cost-Damped Risk beta=1.25
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=1.25
+
+  - name: Central Pull + Cost-Damped Risk beta=1.50
+    overrides:
+      - policy.scheduler.protected_pull_risk_beta=1.50
+
+  - name: Central Pull + Arrival-Time+Estimated-Cost
+    overrides:
+      - policy.scheduler.protected_pull_order=arrival_plus_cost
+
+  - name: Central Pull + Highest Response Ratio
+    overrides:
+      - policy.scheduler.protected_pull_order=highest_response_ratio
+
+  - name: Central Pull beta=0.5 + Local Normal Arrival-Time+Estimated-Cost
+    overrides:
+      - policy.scheduler.normal_order=arrival_plus_cost
+
+  - name: Local Assigned-Load + Normal FIFO
+    overrides:
+      - policy.scheduler.global_protected_pull=false
+      - policy.scheduler.normal_order=fifo
+
+  - name: Local Assigned-Load + Normal Arrival-Time+Estimated-Cost
+    overrides:
+      - policy.scheduler.global_protected_pull=false
+      - policy.scheduler.normal_order=arrival_plus_cost
+
+  - name: Local Assigned-Load + Normal Size-Class FIFO
+    overrides:
+      - policy.scheduler.global_protected_pull=false
+      - policy.scheduler.normal_order=size_class_fifo
+
+  - name: Local Assigned-Load + Normal Bounded Size-Class FIFO
+    overrides:
+      - policy.scheduler.global_protected_pull=false
+      - policy.scheduler.normal_order=bounded_size_class_fifo
