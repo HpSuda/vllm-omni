@@ -55,6 +55,8 @@ P95 降幅 = (baseline - candidate) / baseline
 | Tail-aware Release-Calendar Beam | 与 Wave 相同的 100 seeds 降 2.678% | 同 cohort 降 2.470% | 预测收益约 0.06%–0.95% | NPU 实际只降 0.069%，说明逐 pull 规划对 ETA 误差敏感 |
 | 全局可见队列逐-pull 重规划 | 相对 Queue-Band 降 2.938% | 降 2.509% | 只降 0.814% / 0.061% | 首个 8-request 计划实际位置只命中 1/8，计划抖动过大，否决 |
 | 积压配平 + 波次顺序锁定 | paired mean 降 2.598%，胜率 93% | paired mean 降 2.502%，胜率 92% | 降 1.205% / 1.267% | 当前最强 NPU 候选 |
+| 波次大邻域 + suffix rollout | 相对当前 Wave 回退 0.081% | 相对 Wave 改善 0.114% | 相对 Wave 改善 0.132% / 回退 0.902% | 方向不稳且规划慢 4.5–5.3×，否决 |
+| ETA 鲁棒波次共识 | 相对当前 Wave 降 0.434% | 相对 Wave 降 0.644% | 相对 Wave 再降 0.288% / 0.370% | 保留为后续 refinement，不抢先占用 NPU |
 
 “积压配平 + 波次顺序锁定”相对 fixed Beam 的多种子结果基本持平：
 
@@ -68,6 +70,12 @@ Queue-Band，并比对应 fixed Beam 再降低 0.255% / 1.073%。其关键区别
 这里的 2.598% / 2.502% 是逐 seed 先计算降幅再取均值；若直接用两列 P95
 均值相除，会得到 2.627% / 2.511%，两者是不同统计量。其他报告中 Beam
 约 2.65% / 1.95% 的数字来自不同 seed cohort，不能与本表直接混算。
+
+ETA 鲁棒波次共识要求同一个 prefix 在 nominal、晚释放和两种 backend 顺序
+扰动场景中都不劣于当前 Wave。它的纯 P95 信号方向一致，但绝对收益只有
+8.374s / 14.269s，规划耗时约 174ms / 292ms；req50 的 P99 和 makespan
+还恶化约 16.8s。因此先实测收益更大的基础 Wave，只有基础收益在 NPU 上成立，
+再考虑这个 refinement。
 
 ## 已否决的主要方向
 
@@ -84,8 +92,10 @@ Queue-Band，并比对应 fixed Beam 再降低 0.255% / 1.073%。其关键区别
 
 ## 下一步
 
-1. 服务器重连后，先在容器运行新策略的 dispatcher 单测。
-2. 只跑一次 req50 的“积压配平 + 波次顺序锁定”NPU 实验，benchmark 参数不变。
+1. 容器测试已通过：planner 6 项、dispatcher 27 项。
+2. req50 的“积压配平 + 波次顺序锁定”已在服务器后台启动，实验名为
+   `wan22_backlog_leveling_wave_commit_req50_20260727_214750`；服务器 source
+   HEAD 为 `201d62eafcfaeaa66a4201e1ae5a2f73260de97c`，benchmark 参数不变。
 3. 必须从 raw trace 验证确实发生了 epoch 规划和 changed dispatch，并记录每次
    planner elapsed；它当前只是实验候选，不宣称生产安全。
 4. 只有 req50 NPU 明确优于 1716.099s，才安排 req100 NPU。
