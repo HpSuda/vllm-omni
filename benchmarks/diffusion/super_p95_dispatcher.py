@@ -28,6 +28,12 @@ from fastapi.responses import JSONResponse, Response
 from starlette.datastructures import FormData, UploadFile
 from vllm.logger import init_logger
 
+from benchmarks.diffusion.backlog_leveling import (
+    BacklogLevelingConfig,
+    BacklogLevelingPlan,
+    BacklogLevelingRequest,
+    plan_backlog_leveling,
+)
 from benchmarks.diffusion.tail_aware_release_calendar import (
     ReleaseCalendarBeamConfig,
     ReleaseCalendarPlan,
@@ -55,6 +61,7 @@ _CENTRAL_PULL_POLICIES = {
     "central_pull_queue_band_risk",
     "central_pull_queue_mix_risk",
     "central_pull_tail_aware_release_calendar_beam",
+    "central_pull_backlog_leveling_wave_commit",
 }
 _TAIL_DISPATCH_MODES = {
     "immediate",
@@ -227,9 +234,7 @@ class ManagedBackendLauncher:
         occupied = [spec for spec in self.specs if self._port_has_listener(spec)]
         if not occupied:
             return
-        details = ", ".join(
-            f"{spec.port}(device={spec.device_id}, url={spec.base_url})" for spec in occupied
-        )
+        details = ", ".join(f"{spec.port}(device={spec.device_id}, url={spec.base_url})" for spec in occupied)
         raise RuntimeError(
             "Refusing to launch managed super_p95 backends on occupied ports: "
             f"{details}. Stop the residual backend processes or choose different ports."
@@ -420,6 +425,10 @@ class SuperP95Dispatcher:
         central_pull_beam_max_pending: int = 27,
         central_pull_beam_history_size: int = 128,
         central_pull_beam_candidate_cap: int = 4096,
+        central_pull_leveling_trigger_pending: int = 16,
+        central_pull_leveling_commit_size: int = 0,
+        central_pull_leveling_max_descent_rounds: int = 6,
+        central_pull_leveling_candidate_cap: int = 20_000,
         service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
@@ -472,6 +481,14 @@ class SuperP95Dispatcher:
             or not 0.0 <= central_pull_mix_max_long_fraction <= 1.0
         ):
             raise ValueError("central_pull_mix_max_long_fraction must be in [0, 1]")
+        if central_pull_leveling_trigger_pending < 1:
+            raise ValueError("central_pull_leveling_trigger_pending must be positive")
+        if central_pull_leveling_commit_size < 0:
+            raise ValueError("central_pull_leveling_commit_size cannot be negative")
+        if central_pull_leveling_max_descent_rounds < 0:
+            raise ValueError("central_pull_leveling_max_descent_rounds cannot be negative")
+        if central_pull_leveling_candidate_cap < 1:
+            raise ValueError("central_pull_leveling_candidate_cap must be positive")
         self.normal_routing_policy = normal_routing_policy
         self.central_pull_risk_beta = central_pull_risk_beta
         self.central_pull_band_risk_beta = central_pull_band_risk_beta
@@ -503,6 +520,23 @@ class SuperP95Dispatcher:
         self.central_pull_beam_max_pending = central_pull_beam_max_pending
         self.central_pull_beam_history_size = central_pull_beam_history_size
         self.central_pull_beam_candidate_cap = central_pull_beam_candidate_cap
+        resolved_leveling_commit_size = (
+            central_pull_leveling_commit_size if central_pull_leveling_commit_size > 0 else len(self.backends)
+        )
+        self.backlog_leveling_config = BacklogLevelingConfig(
+            trigger_pending=central_pull_leveling_trigger_pending,
+            commit_size=resolved_leveling_commit_size,
+            max_descent_rounds=(central_pull_leveling_max_descent_rounds),
+            candidate_cap=central_pull_leveling_candidate_cap,
+            risk_beta=central_pull_risk_beta,
+            band_risk_beta=central_pull_band_risk_beta,
+            band_min_pending=central_pull_band_min_pending,
+            band_max_pending=central_pull_band_max_pending,
+        )
+        self.central_pull_leveling_trigger_pending = central_pull_leveling_trigger_pending
+        self.central_pull_leveling_commit_size = resolved_leveling_commit_size
+        self.central_pull_leveling_max_descent_rounds = central_pull_leveling_max_descent_rounds
+        self.central_pull_leveling_candidate_cap = central_pull_leveling_candidate_cap
         self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
@@ -527,6 +561,12 @@ class SuperP95Dispatcher:
         self.release_calendar_planner_elapsed_total_ms = 0.0
         self.release_calendar_busy_epoch = 0
         self.last_release_calendar_plan: ReleaseCalendarPlan | None = None
+        self.backlog_leveling_epochs = 0
+        self.backlog_leveling_committed_dispatches = 0
+        self.backlog_leveling_changed_dispatches = 0
+        self.backlog_leveling_planner_elapsed_total_ms = 0.0
+        self.last_backlog_leveling_plan: BacklogLevelingPlan | None = None
+        self._backlog_leveling_committed_ids: list[str] = []
         self._completed_latency_history_s: deque[float] = deque(maxlen=central_pull_beam_history_size)
         self._pending_normal_dispatches: list[PendingNormalDispatch] = []
         self._pending_tail_dispatches: list[PendingTailDispatch] = []
@@ -1007,6 +1047,12 @@ class SuperP95Dispatcher:
             release_calendar_planner_elapsed_total_ms = self.release_calendar_planner_elapsed_total_ms
             release_calendar_busy_epoch = self.release_calendar_busy_epoch
             last_plan = self.last_release_calendar_plan
+            backlog_leveling_epochs = self.backlog_leveling_epochs
+            backlog_leveling_committed_dispatches = self.backlog_leveling_committed_dispatches
+            backlog_leveling_changed_dispatches = self.backlog_leveling_changed_dispatches
+            backlog_leveling_planner_elapsed_total_ms = self.backlog_leveling_planner_elapsed_total_ms
+            backlog_leveling_remaining_commit = tuple(self._backlog_leveling_committed_ids)
+            last_backlog_leveling_plan = self.last_backlog_leveling_plan
         return JSONResponse(
             status_code=200 if overall_healthy else 503,
             content={
@@ -1029,6 +1075,10 @@ class SuperP95Dispatcher:
                 "central_pull_beam_max_pending": self.central_pull_beam_max_pending,
                 "central_pull_beam_history_size": self.central_pull_beam_history_size,
                 "central_pull_beam_candidate_cap": self.central_pull_beam_candidate_cap,
+                "central_pull_leveling_trigger_pending": (self.central_pull_leveling_trigger_pending),
+                "central_pull_leveling_commit_size": (self.central_pull_leveling_commit_size),
+                "central_pull_leveling_max_descent_rounds": (self.central_pull_leveling_max_descent_rounds),
+                "central_pull_leveling_candidate_cap": (self.central_pull_leveling_candidate_cap),
                 "central_long_fraction": central_long_fraction,
                 "central_mix_active": central_mix_active,
                 "tail_routing_mode": self.tail_routing_mode,
@@ -1053,6 +1103,19 @@ class SuperP95Dispatcher:
                 "release_calendar_last_fallback_reason": (last_plan.fallback_reason if last_plan is not None else None),
                 "release_calendar_last_projected_cohort_size": (
                     last_plan.projected_cohort_size if last_plan is not None else None
+                ),
+                "backlog_leveling_epochs": backlog_leveling_epochs,
+                "backlog_leveling_committed_dispatches": (backlog_leveling_committed_dispatches),
+                "backlog_leveling_changed_dispatches": (backlog_leveling_changed_dispatches),
+                "backlog_leveling_planner_elapsed_total_ms": (backlog_leveling_planner_elapsed_total_ms),
+                "backlog_leveling_remaining_commit": (backlog_leveling_remaining_commit),
+                "backlog_leveling_last_predicted_before_p95_s": (
+                    last_backlog_leveling_plan.predicted_before_p95_s
+                    if last_backlog_leveling_plan is not None
+                    else None
+                ),
+                "backlog_leveling_last_predicted_after_p95_s": (
+                    last_backlog_leveling_plan.predicted_after_p95_s if last_backlog_leveling_plan is not None else None
                 ),
             },
         )
@@ -1221,7 +1284,11 @@ class SuperP95Dispatcher:
         request_id: str,
     ) -> None:
         if (
-            self.normal_routing_policy != "central_pull_tail_aware_release_calendar_beam"
+            self.normal_routing_policy
+            not in {
+                "central_pull_tail_aware_release_calendar_beam",
+                "central_pull_backlog_leveling_wave_commit",
+            }
             or self._pending_normal_dispatches
             or self._pending_tail_dispatches
             or any(
@@ -1233,6 +1300,8 @@ class SuperP95Dispatcher:
         previous_history_count = len(self._completed_latency_history_s)
         self._completed_latency_history_s.clear()
         self.last_release_calendar_plan = None
+        self.last_backlog_leveling_plan = None
+        self._backlog_leveling_committed_ids.clear()
         self.release_calendar_busy_epoch += 1
         write_trace_event(
             self.trace_log_file,
@@ -1393,6 +1462,22 @@ class SuperP95Dispatcher:
                     for pending in self._pending_normal_dispatches
                     if pending.request_id == planner.selected_request_id
                 )
+            elif self.normal_routing_policy == "central_pull_backlog_leveling_wave_commit":
+                fallback_selected = max(
+                    self._pending_normal_dispatches,
+                    key=lambda item: (
+                        risk_score(item),
+                        -item.arrival_counter,
+                    ),
+                )
+                selected = self._select_backlog_leveling_locked(
+                    backend_index=backend_index,
+                    now_s=now_s,
+                    fallback_selected=fallback_selected,
+                )
+                # Whole-backlog planning is synchronous. Account for that time
+                # in the request wait and active-request release prediction.
+                now_s = time.perf_counter()
             else:
                 selected = max(
                     self._pending_normal_dispatches,
@@ -1498,6 +1583,131 @@ class SuperP95Dispatcher:
         self.last_release_calendar_plan = plan
         return plan
 
+    def _select_backlog_leveling_locked(
+        self,
+        *,
+        backend_index: int,
+        now_s: float,
+        fallback_selected: PendingNormalDispatch,
+    ) -> PendingNormalDispatch:
+        pending_by_id = {pending.request_id: pending for pending in self._pending_normal_dispatches}
+        self._backlog_leveling_committed_ids = [
+            request_id for request_id in self._backlog_leveling_committed_ids if request_id in pending_by_id
+        ]
+
+        if (
+            not self._backlog_leveling_committed_ids
+            and len(self._pending_normal_dispatches) >= self.backlog_leveling_config.trigger_pending
+        ):
+            plan = self._plan_backlog_leveling_locked(
+                backend_index=backend_index,
+                now_s=now_s,
+            )
+            if plan is not None:
+                self._backlog_leveling_committed_ids = list(plan.committed_request_ids)
+
+        if not self._backlog_leveling_committed_ids:
+            return fallback_selected
+
+        selected_id = self._backlog_leveling_committed_ids.pop(0)
+        selected = pending_by_id[selected_id]
+        changed = selected_id != fallback_selected.request_id
+        self.backlog_leveling_committed_dispatches += 1
+        if changed:
+            self.backlog_leveling_changed_dispatches += 1
+        planned_backend_index = None
+        if self.last_backlog_leveling_plan is not None:
+            planned_job = next(
+                (job for job in self.last_backlog_leveling_plan.jobs if job.request_id == selected_id),
+                None,
+            )
+            if planned_job is not None:
+                planned_backend_index = planned_job.backend_index
+        write_trace_event(
+            self.trace_log_file,
+            "backlog_leveling_wave_dispatch",
+            node="dispatcher",
+            request_id=selected_id,
+            backend=self.backends[backend_index].name,
+            actual_backend_index=backend_index,
+            planned_backend_index=planned_backend_index,
+            fallback_request_id=fallback_selected.request_id,
+            changed_from_queue_band=changed,
+            remaining_commit=tuple(self._backlog_leveling_committed_ids),
+            central_queue_depth=len(self._pending_normal_dispatches),
+        )
+        return selected
+
+    def _plan_backlog_leveling_locked(
+        self,
+        *,
+        backend_index: int,
+        now_s: float,
+    ) -> BacklogLevelingPlan | None:
+        releases_s: list[float] = []
+        active_normal_latencies_s: list[float] = []
+        gated_tail_counts = {
+            index: sum(pending.decision.backend_index == index for pending in self._pending_tail_dispatches)
+            for index in range(len(self.backends))
+        }
+        for index, backend in enumerate(self.backends):
+            running_tail_count = max(
+                backend.inflight_sacrificial_requests - gated_tail_counts[index],
+                0,
+            )
+            if running_tail_count:
+                return None
+            if index == backend_index or backend.inflight_normal_requests == 0:
+                releases_s.append(0.0)
+                continue
+            active = backend.active_normal_prediction
+            if active is None:
+                return None
+            release_s = max(
+                active.bind_at_s + active.estimated_service_s - now_s,
+                0.0,
+            )
+            releases_s.append(release_s)
+            active_normal_latencies_s.append(now_s + release_s - active.arrival_time_s)
+
+        plan = plan_backlog_leveling(
+            pending=[
+                BacklogLevelingRequest(
+                    request_id=pending.request_id,
+                    sequence=pending.arrival_counter,
+                    arrival_time_s=pending.arrival_time_s,
+                    estimated_service_s_by_backend=(pending.estimated_service_s_by_backend),
+                )
+                for pending in self._pending_normal_dispatches
+            ],
+            now_s=now_s,
+            release_calendar_s=tuple(releases_s),
+            completed_latencies_s=tuple(self._completed_latency_history_s),
+            active_normal_projected_latencies_s=tuple(active_normal_latencies_s),
+            outstanding_tail_count=sum(backend.inflight_sacrificial_requests for backend in self.backends),
+            config=self.backlog_leveling_config,
+        )
+        self.last_backlog_leveling_plan = plan
+        self.backlog_leveling_epochs += 1
+        self.backlog_leveling_planner_elapsed_total_ms += plan.elapsed_ms
+        write_trace_event(
+            self.trace_log_file,
+            "backlog_leveling_epoch_plan",
+            node="dispatcher",
+            backend=self.backends[backend_index].name,
+            queue_depth=len(self._pending_normal_dispatches),
+            committed_request_ids=plan.committed_request_ids,
+            planned_backend_indices=tuple(job.backend_index for job in plan.jobs[: len(plan.committed_request_ids)]),
+            release_calendar_s=plan.release_calendar_s,
+            predicted_before_p95_s=(plan.predicted_before_p95_s),
+            predicted_after_p95_s=(plan.predicted_after_p95_s),
+            evaluated_candidates=plan.evaluated_candidates,
+            descent_rounds=plan.descent_rounds,
+            elapsed_ms=plan.elapsed_ms,
+            projected_cohort_size=plan.projected_cohort_size,
+        )
+        return plan
+
     def _release_waiting_tails_locked(self) -> None:
         if self.tail_dispatch_mode != "protected_drain":
             return
@@ -1558,6 +1768,7 @@ class SuperP95Dispatcher:
                 "central_pull_queue_band_risk",
                 "central_pull_queue_mix_risk",
                 "central_pull_tail_aware_release_calendar_beam",
+                "central_pull_backlog_leveling_wave_commit",
             }
             and queue_depth is not None
             and self.central_pull_band_min_pending <= queue_depth <= self.central_pull_band_max_pending
@@ -2141,6 +2352,7 @@ def build_arg_parser(
             "central_pull_queue_band_risk",
             "central_pull_queue_mix_risk",
             "central_pull_tail_aware_release_calendar_beam",
+            "central_pull_backlog_leveling_wave_commit",
         ),
         default="assigned_load",
         help=(
@@ -2152,7 +2364,8 @@ def build_arg_parser(
             "queue_mix_risk can use a third beta when that band contains few "
             "online long requests; tail_aware_release_calendar_beam plans a "
             "bounded sequence over visible backend release times and executes "
-            "only its first action."
+            "only its first action; backlog_leveling_wave_commit levels the "
+            "whole visible backlog and commits one bounded backend wave."
         ),
     )
     parser.add_argument(
@@ -2255,6 +2468,30 @@ def build_arg_parser(
         type=int,
         default=4096,
         help="Hard cap on expanded beam candidates per pull decision.",
+    )
+    parser.add_argument(
+        "--central-pull-leveling-trigger-pending",
+        type=int,
+        default=16,
+        help=("Minimum visible Normal backlog for starting a leveling epoch."),
+    )
+    parser.add_argument(
+        "--central-pull-leveling-commit-size",
+        type=int,
+        default=0,
+        help=("Number of leveled dispatches committed per epoch. Zero uses one full backend wave."),
+    )
+    parser.add_argument(
+        "--central-pull-leveling-max-descent-rounds",
+        type=int,
+        default=6,
+        help="Maximum whole-backlog pair-swap improvement rounds.",
+    )
+    parser.add_argument(
+        "--central-pull-leveling-candidate-cap",
+        type=int,
+        default=20_000,
+        help="Hard cap on evaluated leveling schedules per epoch.",
     )
     parser.add_argument(
         "--request-timeout-s",
@@ -2483,6 +2720,26 @@ def build_dispatcher_from_args(
             args,
             "central_pull_beam_candidate_cap",
             4096,
+        ),
+        central_pull_leveling_trigger_pending=getattr(
+            args,
+            "central_pull_leveling_trigger_pending",
+            16,
+        ),
+        central_pull_leveling_commit_size=getattr(
+            args,
+            "central_pull_leveling_commit_size",
+            0,
+        ),
+        central_pull_leveling_max_descent_rounds=getattr(
+            args,
+            "central_pull_leveling_max_descent_rounds",
+            6,
+        ),
+        central_pull_leveling_candidate_cap=getattr(
+            args,
+            "central_pull_leveling_candidate_cap",
+            20_000,
         ),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,

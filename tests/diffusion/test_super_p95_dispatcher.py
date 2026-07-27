@@ -583,6 +583,123 @@ def test_tail_aware_release_calendar_beam_records_online_plan(
     assert dispatcher.release_calendar_beam_plans >= 1
 
 
+def test_backlog_leveling_commits_one_visible_dispatch_wave(
+    monkeypatch,
+) -> None:
+    now_s = 0.0
+    monkeypatch.setattr(
+        dispatcher_module.time,
+        "perf_counter",
+        lambda: now_s,
+    )
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0", "http://backend-1"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy=("central_pull_backlog_leveling_wave_commit"),
+        central_pull_risk_beta=0.85,
+        central_pull_band_risk_beta=0.625,
+        central_pull_band_min_pending=2,
+        central_pull_band_max_pending=8,
+        central_pull_leveling_trigger_pending=4,
+        central_pull_leveling_commit_size=2,
+        central_pull_leveling_max_descent_rounds=3,
+        central_pull_leveling_candidate_cap=100,
+    )
+
+    def body(request_id: str, request_type: str) -> dict[str, str]:
+        values = {
+            "short": ("854", "480", "3", "80"),
+            "medium": ("854", "480", "4", "120"),
+            "long": ("1280", "720", "6", "80"),
+        }[request_type]
+        width, height, steps, frames = values
+        return {
+            "request_id": request_id,
+            "width": width,
+            "height": height,
+            "num_inference_steps": steps,
+            "num_frames": frames,
+        }
+
+    async def _run():
+        nonlocal now_s
+        incumbent_0 = await dispatcher._choose_backend(
+            "/v1/videos",
+            body("incumbent-0", "long"),
+        )
+        incumbent_1 = await dispatcher._choose_backend(
+            "/v1/videos",
+            body("incumbent-1", "long"),
+        )
+        tasks = [
+            asyncio.create_task(
+                dispatcher._choose_backend(
+                    "/v1/videos",
+                    body(f"pending-{index}", request_type),
+                )
+            )
+            for index, request_type in enumerate(("short", "medium", "long", "short"))
+        ]
+        await asyncio.sleep(0)
+
+        now_s = 100.0
+        await dispatcher._mark_failed_response(
+            incumbent_0,
+            elapsed_s=100.0,
+        )
+        await asyncio.sleep(0)
+        first_task = next(task for task in tasks if task.done())
+        first = await first_task
+        plan = dispatcher.last_backlog_leveling_plan
+        assert plan is not None
+        assert first.request_id == plan.committed_request_ids[0]
+        second_expected = plan.committed_request_ids[1]
+        assert dispatcher._backlog_leveling_committed_ids == [second_expected]
+
+        now_s = 110.0
+        await dispatcher._mark_failed_response(
+            first,
+            elapsed_s=10.0,
+        )
+        await asyncio.sleep(0)
+        remaining = [task for task in tasks if task is not first_task]
+        second_task = next(task for task in remaining if task.done())
+        second = await second_task
+        assert second.request_id == second_expected
+
+        current = second
+        remaining.remove(second_task)
+        while remaining:
+            now_s += 10.0
+            await dispatcher._mark_failed_response(
+                current,
+                elapsed_s=10.0,
+            )
+            await asyncio.sleep(0)
+            selected_task = next(task for task in remaining if task.done())
+            remaining.remove(selected_task)
+            current = await selected_task
+        await dispatcher._mark_failed_response(
+            current,
+            elapsed_s=10.0,
+        )
+        await dispatcher._mark_failed_response(
+            incumbent_1,
+            elapsed_s=150.0,
+        )
+
+    asyncio.run(_run())
+
+    assert dispatcher.backlog_leveling_epochs == 1
+    assert dispatcher.backlog_leveling_committed_dispatches == 2
+    assert not dispatcher._backlog_leveling_committed_ids
+
+
 def test_release_calendar_beam_falls_back_when_tail_eta_is_unknown(
     monkeypatch,
 ) -> None:
