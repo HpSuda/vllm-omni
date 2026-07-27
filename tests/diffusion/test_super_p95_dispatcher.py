@@ -299,6 +299,72 @@ def test_cost_damped_risk_rejects_invalid_beta(beta: float) -> None:
         )
 
 
+def test_queue_band_risk_uses_band_beta_only_inside_configured_depth(
+    monkeypatch,
+) -> None:
+    now_s = 0.0
+    monkeypatch.setattr(dispatcher_module.time, "perf_counter", lambda: now_s)
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy="central_pull_queue_band_risk",
+        central_pull_risk_beta=0.85,
+        central_pull_band_risk_beta=0.625,
+        central_pull_band_min_pending=2,
+        central_pull_band_max_pending=2,
+    )
+    short = {
+        "width": "854",
+        "height": "480",
+        "num_inference_steps": "3",
+        "num_frames": "80",
+    }
+    long = {
+        "width": "1280",
+        "height": "720",
+        "num_inference_steps": "6",
+        "num_frames": "80",
+    }
+
+    async def _run():
+        nonlocal now_s
+        incumbent = await dispatcher._choose_backend("/v1/videos", short)
+        older_short = asyncio.create_task(
+            dispatcher._choose_backend("/v1/videos", short)
+        )
+        await asyncio.sleep(0)
+        now_s = 60.0
+        newer_long = asyncio.create_task(
+            dispatcher._choose_backend("/v1/videos", long)
+        )
+        await asyncio.sleep(0)
+        await dispatcher._mark_failed_response(incumbent, elapsed_s=1.0)
+        await asyncio.sleep(0)
+        assert older_short.done()
+        assert not newer_long.done()
+        selected_short = await older_short
+        await dispatcher._mark_failed_response(selected_short, elapsed_s=1.0)
+        selected_long = await newer_long
+        return selected_short, selected_long
+
+    selected_short, selected_long = asyncio.run(_run())
+
+    assert selected_short.central_risk_beta == pytest.approx(0.625)
+    assert selected_short.central_queue_depth == 2
+    assert selected_short.central_risk_band_active is True
+    assert selected_long.central_queue_depth == 1
+    assert selected_long.central_risk_band_active is False
+    assert selected_short.arrival_counter < selected_long.arrival_counter
+    assert dispatcher._central_pull_beta(1) == pytest.approx(0.85)
+    assert dispatcher._central_pull_beta(2) == pytest.approx(0.625)
+    assert dispatcher._central_pull_beta(3) == pytest.approx(0.85)
+
+
 def test_central_pull_still_dispatches_tail_without_normal_capacity() -> None:
     dispatcher = SuperP95Dispatcher(
         backend_urls=["http://backend-0"],

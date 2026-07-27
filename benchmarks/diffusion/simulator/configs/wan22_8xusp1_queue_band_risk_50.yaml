@@ -1,0 +1,103 @@
+version: 1
+name: wan22-8xusp1-queue-band-risk-50
+
+simulation:
+  seed: 42
+  runs: 1
+
+workload:
+  num_requests: 50
+  utilization: null
+  request_rate: 0.05
+  request_types:
+    - name: short
+      weight: 0.15
+      width: 854
+      height: 480
+      num_inference_steps: 3
+      num_frames: 80
+      nominal_service_s: 106.19037452572957
+      estimated_service_s: 110.724
+      metadata:
+        fps: 16
+    - name: medium
+      weight: 0.25
+      width: 854
+      height: 480
+      num_inference_steps: 4
+      num_frames: 120
+      nominal_service_s: 221.95944084071866
+      estimated_service_s: 219.548
+      metadata:
+        fps: 24
+    - name: long
+      weight: 0.60
+      width: 1280
+      height: 720
+      num_inference_steps: 6
+      num_frames: 80
+      nominal_service_s: 628.089346267283
+      estimated_service_s: 612.299
+      metadata:
+        fps: 16
+
+service:
+  timing_model:
+    type: fixed_anchor
+  encode_fraction: 0.0
+  decode_fraction: 0.0
+  actual_jitter_sigma: 0.011468315167067403
+  estimate_error_sigma: 0.0
+  preemption_cost_s: 0.0
+  actual_service_scale: 1.0
+  hsdp:
+    enabled: false
+    shard_size: 1
+    communication_overhead_weight: 0.0
+
+topology:
+  name: wan22-8xusp1-queue-band-risk-50
+  backend_count: 8
+  devices_per_backend: 1
+  speed_factors: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+policy:
+  classifier:
+    type: quota_tail
+    quota_every: 20
+    quota_amount: 1
+    threshold_ratio: 0.8
+    long_request_ratio: 1.5
+    initial_arrival_counter: 1
+    initial_credits: 0
+    initial_min_service_s: 0.499921875
+    initial_max_service_s: 0.499921875
+  router:
+    type: projected_completion
+    nonpreemptible_weight: 0.1
+    tail_mode: pack
+    load_view: assigned
+    update_latency_ema: false
+  scheduler:
+    type: two_queue
+    normal_order: fifo
+    sacrificial_order: lifo
+    preempt_normal_over_sacrificial: true
+    global_work_stealing: false
+    steal_order: max_risk
+    steal_hysteresis_s: 10.0
+    steal_cost_s: 0.5
+    global_protected_pull: true
+    protected_pull_order: queue_band_risk
+    # Use lower cost weight only at medium queue depth. This is online: the
+    # policy sees the current central queue, not the final request count.
+    protected_pull_risk_beta: 0.85
+    protected_pull_band_risk_beta: 0.625
+    protected_pull_band_min_pending: 10
+    protected_pull_band_max_pending: 27
+    protected_pull_risk_slack_s: 0.0
+    protected_pull_guard_fraction: 0.05
+    protected_pull_guard_max: 1
+    protected_pull_guard_min_pending: 20
+    protected_pull_tail_head_start: false
+    protected_pull_cost_s: 0.5

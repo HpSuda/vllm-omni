@@ -960,6 +960,9 @@ class TwoQueueScheduler:
         global_protected_pull: bool = False,
         protected_pull_order: str = "fifo",
         protected_pull_risk_beta: float = 0.5,
+        protected_pull_band_risk_beta: float = 0.625,
+        protected_pull_band_min_pending: int = 10,
+        protected_pull_band_max_pending: int = 27,
         protected_pull_risk_slack_s: float = 0.0,
         protected_pull_guard_fraction: float = 0.05,
         protected_pull_guard_max: int | None = 1,
@@ -980,6 +983,18 @@ class TwoQueueScheduler:
         protected_pull_risk_beta = _as_float(
             protected_pull_risk_beta,
             "protected_pull_risk_beta",
+        )
+        protected_pull_band_risk_beta = _as_float(
+            protected_pull_band_risk_beta,
+            "protected_pull_band_risk_beta",
+        )
+        protected_pull_band_min_pending = _as_int(
+            protected_pull_band_min_pending,
+            "protected_pull_band_min_pending",
+        )
+        protected_pull_band_max_pending = _as_int(
+            protected_pull_band_max_pending,
+            "protected_pull_band_max_pending",
         )
         protected_pull_risk_slack_s = _as_float(
             protected_pull_risk_slack_s,
@@ -1027,6 +1042,7 @@ class TwoQueueScheduler:
             "fifo",
             "max_risk",
             "cost_damped_risk",
+            "queue_band_risk",
             "risk_slack_srpt",
             "guarded_max_risk",
             "arrival_plus_cost",
@@ -1034,7 +1050,7 @@ class TwoQueueScheduler:
         }:
             raise ValueError(
                 "scheduler.protected_pull_order must be 'fifo', 'max_risk', "
-                "'cost_damped_risk', 'risk_slack_srpt', "
+                "'cost_damped_risk', 'queue_band_risk', 'risk_slack_srpt', "
                 "'guarded_max_risk', 'arrival_plus_cost', or "
                 "'highest_response_ratio'"
             )
@@ -1050,6 +1066,15 @@ class TwoQueueScheduler:
             raise ValueError("steal_cost_s cannot be negative")
         if protected_pull_risk_beta < 0.0:
             raise ValueError("protected_pull_risk_beta cannot be negative")
+        if protected_pull_band_risk_beta < 0.0:
+            raise ValueError("protected_pull_band_risk_beta cannot be negative")
+        if protected_pull_band_min_pending < 1:
+            raise ValueError("protected_pull_band_min_pending must be positive")
+        if protected_pull_band_max_pending < protected_pull_band_min_pending:
+            raise ValueError(
+                "protected_pull_band_max_pending cannot be less than "
+                "protected_pull_band_min_pending"
+            )
         if protected_pull_risk_slack_s < 0.0:
             raise ValueError("protected_pull_risk_slack_s cannot be negative")
         if not 0.0 <= protected_pull_guard_fraction < 1.0:
@@ -1091,6 +1116,9 @@ class TwoQueueScheduler:
         self.global_protected_pull = global_protected_pull
         self.protected_pull_order = protected_pull_order
         self.protected_pull_risk_beta = protected_pull_risk_beta
+        self.protected_pull_band_risk_beta = protected_pull_band_risk_beta
+        self.protected_pull_band_min_pending = protected_pull_band_min_pending
+        self.protected_pull_band_max_pending = protected_pull_band_max_pending
         self.protected_pull_risk_slack_s = protected_pull_risk_slack_s
         self.protected_pull_guard_fraction = protected_pull_guard_fraction
         self.protected_pull_guard_max = protected_pull_guard_max
@@ -1139,17 +1167,37 @@ class TwoQueueScheduler:
         self,
         requests: list[RequestView],
         now_s: float,
+        *,
+        beta: float | None = None,
     ) -> RequestView:
         """Prioritize request age while damping estimated service disparity."""
 
+        risk_beta = self.protected_pull_risk_beta if beta is None else beta
         return min(
             requests,
             key=lambda request: (
-                -(now_s - request.arrival_time_s + self.protected_pull_risk_beta * request.estimated_total_s),
+                -(now_s - request.arrival_time_s + risk_beta * request.estimated_total_s),
                 request.arrival_seq,
                 request.request_id,
             ),
         )
+
+    def _queue_band_risk(
+        self,
+        requests: list[RequestView],
+        now_s: float,
+    ) -> RequestView:
+        """Damp cost only inside a configured online queue-depth band."""
+
+        queue_depth = len(requests)
+        beta = (
+            self.protected_pull_band_risk_beta
+            if self.protected_pull_band_min_pending
+            <= queue_depth
+            <= self.protected_pull_band_max_pending
+            else self.protected_pull_risk_beta
+        )
+        return self._cost_damped_risk(requests, now_s, beta=beta)
 
     def _risk_slack_srpt(
         self,
@@ -1310,6 +1358,8 @@ class TwoQueueScheduler:
             return self._least_laxity(normal, now_s).request_id
         if self.protected_pull_order == "cost_damped_risk":
             return self._cost_damped_risk(normal, now_s).request_id
+        if self.protected_pull_order == "queue_band_risk":
+            return self._queue_band_risk(normal, now_s).request_id
         if self.protected_pull_order == "risk_slack_srpt":
             return self._risk_slack_srpt(normal, now_s).request_id
         if self.protected_pull_order == "guarded_max_risk":
@@ -1585,6 +1635,9 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
                 "global_protected_pull",
                 "protected_pull_order",
                 "protected_pull_risk_beta",
+                "protected_pull_band_risk_beta",
+                "protected_pull_band_min_pending",
+                "protected_pull_band_max_pending",
                 "protected_pull_risk_slack_s",
                 "protected_pull_guard_fraction",
                 "protected_pull_guard_max",
@@ -1633,6 +1686,18 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
             protected_pull_risk_beta=_as_float(
                 options.get("protected_pull_risk_beta", 0.5),
                 "scheduler.protected_pull_risk_beta",
+            ),
+            protected_pull_band_risk_beta=_as_float(
+                options.get("protected_pull_band_risk_beta", 0.625),
+                "scheduler.protected_pull_band_risk_beta",
+            ),
+            protected_pull_band_min_pending=_as_int(
+                options.get("protected_pull_band_min_pending", 10),
+                "scheduler.protected_pull_band_min_pending",
+            ),
+            protected_pull_band_max_pending=_as_int(
+                options.get("protected_pull_band_max_pending", 27),
+                "scheduler.protected_pull_band_max_pending",
             ),
             protected_pull_risk_slack_s=_as_float(
                 options.get("protected_pull_risk_slack_s", 0.0),

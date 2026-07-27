@@ -11,6 +11,10 @@ TRACE_LOG_DIR="${TRACE_LOG_DIR:-${BACKEND_LOG_DIR}/trace}"
 HARDWARE_PROFILE="${HARDWARE_PROFILE:-910B3}"
 WAN22_ESTIMATOR_PROFILE="${WAN22_ESTIMATOR_PROFILE:-8xusp1_inferred}"
 CENTRAL_PULL_RISK_BETA="${CENTRAL_PULL_RISK_BETA:-0.5}"
+NORMAL_ROUTING_POLICY="${NORMAL_ROUTING_POLICY:-central_pull_cost_damped_risk}"
+CENTRAL_PULL_BAND_RISK_BETA="${CENTRAL_PULL_BAND_RISK_BETA:-0.625}"
+CENTRAL_PULL_BAND_MIN_PENDING="${CENTRAL_PULL_BAND_MIN_PENDING:-10}"
+CENTRAL_PULL_BAND_MAX_PENDING="${CENTRAL_PULL_BAND_MAX_PENDING:-27}"
 TAIL_ROUTING_MODE="${TAIL_ROUTING_MODE:-spread}"
 TAIL_DISPATCH_MODE="${TAIL_DISPATCH_MODE:-immediate}"
 REQUEST_TIMEOUT_S="${REQUEST_TIMEOUT_S:-1000000}"
@@ -44,8 +48,11 @@ python3 benchmarks/diffusion/wan22_super_p95_dispatcher.py \
   --quota-amount "${QUOTA_AMOUNT}" \
   --threshold-ratio "${THRESHOLD_RATIO}" \
   --sacrificial-load-factor "${SACRIFICIAL_LOAD_FACTOR}" \
-  --normal-routing-policy central_pull_cost_damped_risk \
+  --normal-routing-policy "${NORMAL_ROUTING_POLICY}" \
   --central-pull-risk-beta "${CENTRAL_PULL_RISK_BETA}" \
+  --central-pull-band-risk-beta "${CENTRAL_PULL_BAND_RISK_BETA}" \
+  --central-pull-band-min-pending "${CENTRAL_PULL_BAND_MIN_PENDING}" \
+  --central-pull-band-max-pending "${CENTRAL_PULL_BAND_MAX_PENDING}" \
   --tail-routing-mode "${TAIL_ROUTING_MODE}" \
   --tail-dispatch-mode "${TAIL_DISPATCH_MODE}" \
   --backend-log-dir "${BACKEND_LOG_DIR}" \

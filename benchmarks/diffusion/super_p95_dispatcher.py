@@ -43,6 +43,7 @@ _QWEN_SMALL_IMAGE_MAX_PIXELS = 768 * 768
 _CENTRAL_PULL_POLICIES = {
     "central_pull_max_risk",
     "central_pull_cost_damped_risk",
+    "central_pull_queue_band_risk",
 }
 _TAIL_DISPATCH_MODES = {
     "immediate",
@@ -89,6 +90,8 @@ class DispatchDecision:
     central_wait_s: float = 0.0
     central_risk_score: float | None = None
     central_risk_beta: float | None = None
+    central_queue_depth: int | None = None
+    central_risk_band_active: bool | None = None
     batch_key: tuple[Any, ...] | None = None
 
 
@@ -334,6 +337,9 @@ class SuperP95Dispatcher:
         tail_dispatch_mode: str = "immediate",
         normal_routing_policy: str = "assigned_load",
         central_pull_risk_beta: float = 0.5,
+        central_pull_band_risk_beta: float = 0.625,
+        central_pull_band_min_pending: int = 10,
+        central_pull_band_max_pending: int = 27,
         service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
@@ -369,8 +375,20 @@ class SuperP95Dispatcher:
             raise ValueError(f"normal_routing_policy must be one of: {choices}")
         if not math.isfinite(central_pull_risk_beta) or central_pull_risk_beta < 0.0:
             raise ValueError("central_pull_risk_beta must be a finite non-negative number")
+        if not math.isfinite(central_pull_band_risk_beta) or central_pull_band_risk_beta < 0.0:
+            raise ValueError("central_pull_band_risk_beta must be a finite non-negative number")
+        if central_pull_band_min_pending < 1:
+            raise ValueError("central_pull_band_min_pending must be positive")
+        if central_pull_band_max_pending < central_pull_band_min_pending:
+            raise ValueError(
+                "central_pull_band_max_pending cannot be less than "
+                "central_pull_band_min_pending"
+            )
         self.normal_routing_policy = normal_routing_policy
         self.central_pull_risk_beta = central_pull_risk_beta
+        self.central_pull_band_risk_beta = central_pull_band_risk_beta
+        self.central_pull_band_min_pending = central_pull_band_min_pending
+        self.central_pull_band_max_pending = central_pull_band_max_pending
         self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
@@ -458,6 +476,8 @@ class SuperP95Dispatcher:
             central_wait_s=decision.central_wait_s,
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
+            central_queue_depth=decision.central_queue_depth,
+            central_risk_band_active=decision.central_risk_band_active,
             normal_routing_policy=self.normal_routing_policy,
             tail_routing_mode=self.tail_routing_mode,
             tail_dispatch_mode=self.tail_dispatch_mode,
@@ -522,6 +542,8 @@ class SuperP95Dispatcher:
             central_wait_s=decision.central_wait_s,
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
+            central_queue_depth=decision.central_queue_depth,
+            central_risk_band_active=decision.central_risk_band_active,
             normal_routing_policy=self.normal_routing_policy,
             tail_routing_mode=self.tail_routing_mode,
             tail_dispatch_mode=self.tail_dispatch_mode,
@@ -786,6 +808,9 @@ class SuperP95Dispatcher:
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
                 "central_pull_risk_beta": self.central_pull_risk_beta,
+                "central_pull_band_risk_beta": self.central_pull_band_risk_beta,
+                "central_pull_band_min_pending": self.central_pull_band_min_pending,
+                "central_pull_band_max_pending": self.central_pull_band_max_pending,
                 "tail_routing_mode": self.tail_routing_mode,
                 "tail_dispatch_mode": self.tail_dispatch_mode,
                 "service_time_estimator": self.service_time_estimator_name,
@@ -862,7 +887,9 @@ class SuperP95Dispatcher:
                     queue_depth=len(self._pending_normal_dispatches),
                     queue_class="normal",
                     normal_routing_policy=self.normal_routing_policy,
-                    central_risk_beta=self._central_pull_beta(),
+                    central_risk_beta=self._central_pull_beta(
+                        len(self._pending_normal_dispatches)
+                    ),
                     service_time_estimator=self.service_time_estimator_name,
                     **_trace_request_fields(path, body),
                 )
@@ -961,6 +988,8 @@ class SuperP95Dispatcher:
         central_wait_s: float,
         central_risk_score: float | None = None,
         central_risk_beta: float | None = None,
+        central_queue_depth: int | None = None,
+        central_risk_band_active: bool | None = None,
         backend_index: int | None = None,
     ) -> DispatchDecision:
         if backend_index is None:
@@ -1013,6 +1042,8 @@ class SuperP95Dispatcher:
             central_wait_s=central_wait_s,
             central_risk_score=central_risk_score,
             central_risk_beta=central_risk_beta,
+            central_queue_depth=central_queue_depth,
+            central_risk_band_active=central_risk_band_active,
             batch_key=batch_key,
         )
 
@@ -1034,7 +1065,9 @@ class SuperP95Dispatcher:
                 ),
             )
             now_s = time.perf_counter()
-            risk_beta = self._central_pull_beta()
+            queue_depth = len(self._pending_normal_dispatches)
+            risk_beta = self._central_pull_beta(queue_depth)
+            risk_band_active = self._central_pull_band_active(queue_depth)
 
             def risk_score(item: PendingNormalDispatch) -> float:
                 return now_s - item.arrival_time_s + risk_beta * item.estimated_service_s_by_backend[backend_index]
@@ -1063,6 +1096,8 @@ class SuperP95Dispatcher:
                 central_wait_s=central_wait_s,
                 central_risk_score=risk_score(selected),
                 central_risk_beta=risk_beta,
+                central_queue_depth=queue_depth,
+                central_risk_band_active=risk_band_active,
                 backend_index=backend_index,
             )
             if not selected.future.done():
@@ -1109,10 +1144,21 @@ class SuperP95Dispatcher:
         self._dec_inflight(backend, is_sacrificial=True)
         self._fallback_remove_estimated_load(backend, pending.decision)
 
-    def _central_pull_beta(self) -> float:
+    def _central_pull_beta(self, queue_depth: int | None = None) -> float:
         if self.normal_routing_policy == "central_pull_max_risk":
             return 1.0
+        if self._central_pull_band_active(queue_depth):
+            return self.central_pull_band_risk_beta
         return self.central_pull_risk_beta
+
+    def _central_pull_band_active(self, queue_depth: int | None) -> bool:
+        return (
+            self.normal_routing_policy == "central_pull_queue_band_risk"
+            and queue_depth is not None
+            and self.central_pull_band_min_pending
+            <= queue_depth
+            <= self.central_pull_band_max_pending
+        )
 
     def _select_backend_index(self, batch_key: tuple[Any, ...] | None) -> int:
         if batch_key is not None:
@@ -1622,13 +1668,19 @@ def build_arg_parser(
     )
     parser.add_argument(
         "--normal-routing-policy",
-        choices=("assigned_load", "central_pull_max_risk", "central_pull_cost_damped_risk"),
+        choices=(
+            "assigned_load",
+            "central_pull_max_risk",
+            "central_pull_cost_damped_risk",
+            "central_pull_queue_band_risk",
+        ),
         default="assigned_load",
         help=(
             "Normal request binding policy. Central-pull policies keep unstarted "
             "Normal requests in an online global queue. max_risk selects the "
             "maximum (wait + estimate); cost_damped_risk uses "
-            "(wait + beta * estimate)."
+            "(wait + beta * estimate); queue_band_risk substitutes a second "
+            "beta only while the current queue depth is inside a configured band."
         ),
     )
     parser.add_argument(
@@ -1639,6 +1691,24 @@ def build_arg_parser(
             "Estimated-service weight for central_pull_cost_damped_risk. "
             "The Wan2.2 P95 candidate uses 0.5; central_pull_max_risk always uses 1.0."
         ),
+    )
+    parser.add_argument(
+        "--central-pull-band-risk-beta",
+        type=float,
+        default=0.625,
+        help="Estimated-service weight used inside the queue-depth band.",
+    )
+    parser.add_argument(
+        "--central-pull-band-min-pending",
+        type=int,
+        default=10,
+        help="Inclusive lower central-queue depth for the band beta.",
+    )
+    parser.add_argument(
+        "--central-pull-band-max-pending",
+        type=int,
+        default=27,
+        help="Inclusive upper central-queue depth for the band beta.",
     )
     parser.add_argument(
         "--request-timeout-s",
@@ -1793,6 +1863,21 @@ def build_dispatcher_from_args(
             "assigned_load",
         ),
         central_pull_risk_beta=getattr(args, "central_pull_risk_beta", 0.5),
+        central_pull_band_risk_beta=getattr(
+            args,
+            "central_pull_band_risk_beta",
+            0.625,
+        ),
+        central_pull_band_min_pending=getattr(
+            args,
+            "central_pull_band_min_pending",
+            10,
+        ),
+        central_pull_band_max_pending=getattr(
+            args,
+            "central_pull_band_max_pending",
+            27,
+        ),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,
         **(dispatcher_kwargs or {}),
