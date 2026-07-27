@@ -14,6 +14,41 @@ from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
 
 
+def test_managed_launcher_refuses_to_reuse_occupied_backend_ports(tmp_path, monkeypatch) -> None:
+    log_dir = tmp_path / "managed-backends"
+    specs = [
+        dispatcher_module.ManagedBackendSpec(
+            device_id=str(index),
+            port=8091 + index,
+            base_url=f"http://127.0.0.1:{8091 + index}",
+            hardware_profile="910B3",
+        )
+        for index in range(2)
+    ]
+    launcher = dispatcher_module.ManagedBackendLauncher(
+        specs=specs,
+        model="Wan-AI/Wan2.2-T2V-A14B-Diffusers",
+        backend_args=[],
+        backend_env={},
+        backend_scheduler="super_p95_step",
+        device_env_var="ASCEND_RT_VISIBLE_DEVICES",
+        health_timeout_s=30.0,
+        health_poll_interval_s=1.0,
+        log_dir=str(log_dir),
+    )
+    monkeypatch.setattr(
+        launcher,
+        "_port_has_listener",
+        lambda spec: spec.port == 8092,
+    )
+
+    with pytest.raises(RuntimeError, match=r"occupied ports: 8092"):
+        launcher.start_all()
+
+    assert launcher._processes == []
+    assert not log_dir.exists()
+
+
 def test_video_estimate_uses_seconds_and_fps_when_num_frames_missing() -> None:
     body = {
         "size": "854x480",

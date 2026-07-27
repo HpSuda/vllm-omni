@@ -8,6 +8,7 @@ import asyncio
 import math
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import time
@@ -17,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 import httpx
@@ -205,6 +207,7 @@ class ManagedBackendLauncher:
         self._processes: list[ManagedBackendProcess] = []
 
     def start_all(self) -> None:
+        self._assert_ports_available()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Starting %d managed super_p95 backends in parallel. Logs: %s",
@@ -219,6 +222,31 @@ class ManagedBackendLauncher:
         except Exception:
             self.stop_all()
             raise
+
+    def _assert_ports_available(self) -> None:
+        occupied = [spec for spec in self.specs if self._port_has_listener(spec)]
+        if not occupied:
+            return
+        details = ", ".join(
+            f"{spec.port}(device={spec.device_id}, url={spec.base_url})" for spec in occupied
+        )
+        raise RuntimeError(
+            "Refusing to launch managed super_p95 backends on occupied ports: "
+            f"{details}. Stop the residual backend processes or choose different ports."
+        )
+
+    @staticmethod
+    def _port_has_listener(spec: ManagedBackendSpec) -> bool:
+        parsed = urllib_parse.urlsplit(spec.base_url)
+        host = parsed.hostname
+        port = parsed.port or spec.port
+        if not host:
+            raise ValueError(f"Managed backend URL has no host: {spec.base_url}")
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                return True
+        except OSError:
+            return False
 
     def stop_all(self) -> None:
         for managed in reversed(self._processes):
