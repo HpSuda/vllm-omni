@@ -756,7 +756,7 @@ def test_failed_http_response_does_not_enter_release_calendar_history() -> None:
     async def _run():
         dispatcher._client = FailingClient()
         response = await dispatcher.dispatch_json(
-            "/v1/generate",
+            "/v1/videos",
             {
                 "request_id": "failed",
                 "width": 854,
@@ -801,7 +801,7 @@ def test_cancelled_post_releases_release_calendar_state() -> None:
         dispatcher._client = client
         task = asyncio.create_task(
             dispatcher.dispatch_json(
-                "/v1/generate",
+                "/v1/videos",
                 {
                     "request_id": "cancelled",
                     "width": 854,
