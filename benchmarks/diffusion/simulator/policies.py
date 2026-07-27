@@ -13,6 +13,12 @@ from benchmarks.diffusion.simulator.models import (
     Priority,
     RequestView,
 )
+from benchmarks.diffusion.tail_aware_release_calendar import (
+    ReleaseCalendarBeamConfig,
+    ReleaseCalendarPlan,
+    ReleaseCalendarRequest,
+    plan_release_calendar,
+)
 
 
 @dataclass(frozen=True)
@@ -963,6 +969,18 @@ class TwoQueueScheduler:
         protected_pull_band_risk_beta: float = 0.625,
         protected_pull_band_min_pending: int = 10,
         protected_pull_band_max_pending: int = 27,
+        protected_pull_mix_risk_beta: float = 0.4,
+        protected_pull_mix_min_pending: int = 16,
+        protected_pull_mix_max_pending: int = 26,
+        protected_pull_mix_max_long_fraction: float = 0.32,
+        protected_pull_beam_horizon: int = 4,
+        protected_pull_beam_width: int = 16,
+        protected_pull_beam_branch_width: int = 6,
+        protected_pull_beam_risk_slack_s: float = 100.0,
+        protected_pull_beam_min_pending: int = 10,
+        protected_pull_beam_max_pending: int = 27,
+        protected_pull_beam_history_size: int = 128,
+        protected_pull_beam_candidate_cap: int = 4096,
         protected_pull_risk_slack_s: float = 0.0,
         protected_pull_guard_fraction: float = 0.05,
         protected_pull_guard_max: int | None = 1,
@@ -995,6 +1013,54 @@ class TwoQueueScheduler:
         protected_pull_band_max_pending = _as_int(
             protected_pull_band_max_pending,
             "protected_pull_band_max_pending",
+        )
+        protected_pull_mix_risk_beta = _as_float(
+            protected_pull_mix_risk_beta,
+            "protected_pull_mix_risk_beta",
+        )
+        protected_pull_mix_min_pending = _as_int(
+            protected_pull_mix_min_pending,
+            "protected_pull_mix_min_pending",
+        )
+        protected_pull_mix_max_pending = _as_int(
+            protected_pull_mix_max_pending,
+            "protected_pull_mix_max_pending",
+        )
+        protected_pull_mix_max_long_fraction = _as_float(
+            protected_pull_mix_max_long_fraction,
+            "protected_pull_mix_max_long_fraction",
+        )
+        protected_pull_beam_horizon = _as_int(
+            protected_pull_beam_horizon,
+            "protected_pull_beam_horizon",
+        )
+        protected_pull_beam_width = _as_int(
+            protected_pull_beam_width,
+            "protected_pull_beam_width",
+        )
+        protected_pull_beam_branch_width = _as_int(
+            protected_pull_beam_branch_width,
+            "protected_pull_beam_branch_width",
+        )
+        protected_pull_beam_risk_slack_s = _as_float(
+            protected_pull_beam_risk_slack_s,
+            "protected_pull_beam_risk_slack_s",
+        )
+        protected_pull_beam_min_pending = _as_int(
+            protected_pull_beam_min_pending,
+            "protected_pull_beam_min_pending",
+        )
+        protected_pull_beam_max_pending = _as_int(
+            protected_pull_beam_max_pending,
+            "protected_pull_beam_max_pending",
+        )
+        protected_pull_beam_history_size = _as_int(
+            protected_pull_beam_history_size,
+            "protected_pull_beam_history_size",
+        )
+        protected_pull_beam_candidate_cap = _as_int(
+            protected_pull_beam_candidate_cap,
+            "protected_pull_beam_candidate_cap",
         )
         protected_pull_risk_slack_s = _as_float(
             protected_pull_risk_slack_s,
@@ -1043,6 +1109,8 @@ class TwoQueueScheduler:
             "max_risk",
             "cost_damped_risk",
             "queue_band_risk",
+            "queue_mix_risk",
+            "tail_aware_release_calendar_beam",
             "risk_slack_srpt",
             "guarded_max_risk",
             "arrival_plus_cost",
@@ -1050,7 +1118,8 @@ class TwoQueueScheduler:
         }:
             raise ValueError(
                 "scheduler.protected_pull_order must be 'fifo', 'max_risk', "
-                "'cost_damped_risk', 'queue_band_risk', 'risk_slack_srpt', "
+                "'cost_damped_risk', 'queue_band_risk', 'queue_mix_risk', "
+                "'tail_aware_release_calendar_beam', 'risk_slack_srpt', "
                 "'guarded_max_risk', 'arrival_plus_cost', or "
                 "'highest_response_ratio'"
             )
@@ -1071,10 +1140,31 @@ class TwoQueueScheduler:
         if protected_pull_band_min_pending < 1:
             raise ValueError("protected_pull_band_min_pending must be positive")
         if protected_pull_band_max_pending < protected_pull_band_min_pending:
-            raise ValueError(
-                "protected_pull_band_max_pending cannot be less than "
-                "protected_pull_band_min_pending"
-            )
+            raise ValueError("protected_pull_band_max_pending cannot be less than protected_pull_band_min_pending")
+        if protected_pull_mix_risk_beta < 0.0:
+            raise ValueError("protected_pull_mix_risk_beta cannot be negative")
+        if protected_pull_mix_min_pending < 1:
+            raise ValueError("protected_pull_mix_min_pending must be positive")
+        if protected_pull_mix_max_pending < protected_pull_mix_min_pending:
+            raise ValueError("protected_pull_mix_max_pending cannot be less than protected_pull_mix_min_pending")
+        if not 0.0 <= protected_pull_mix_max_long_fraction <= 1.0:
+            raise ValueError("protected_pull_mix_max_long_fraction must be in [0, 1]")
+        if protected_pull_beam_horizon < 1:
+            raise ValueError("protected_pull_beam_horizon must be positive")
+        if protected_pull_beam_width < 1:
+            raise ValueError("protected_pull_beam_width must be positive")
+        if protected_pull_beam_branch_width < 1:
+            raise ValueError("protected_pull_beam_branch_width must be positive")
+        if protected_pull_beam_risk_slack_s < 0.0:
+            raise ValueError("protected_pull_beam_risk_slack_s cannot be negative")
+        if protected_pull_beam_min_pending < 1:
+            raise ValueError("protected_pull_beam_min_pending must be positive")
+        if protected_pull_beam_max_pending < protected_pull_beam_min_pending:
+            raise ValueError("protected_pull_beam_max_pending cannot be less than protected_pull_beam_min_pending")
+        if protected_pull_beam_history_size < 1:
+            raise ValueError("protected_pull_beam_history_size must be positive")
+        if protected_pull_beam_candidate_cap < 1:
+            raise ValueError("protected_pull_beam_candidate_cap must be positive")
         if protected_pull_risk_slack_s < 0.0:
             raise ValueError("protected_pull_risk_slack_s cannot be negative")
         if not 0.0 <= protected_pull_guard_fraction < 1.0:
@@ -1119,6 +1209,18 @@ class TwoQueueScheduler:
         self.protected_pull_band_risk_beta = protected_pull_band_risk_beta
         self.protected_pull_band_min_pending = protected_pull_band_min_pending
         self.protected_pull_band_max_pending = protected_pull_band_max_pending
+        self.protected_pull_mix_risk_beta = protected_pull_mix_risk_beta
+        self.protected_pull_mix_min_pending = protected_pull_mix_min_pending
+        self.protected_pull_mix_max_pending = protected_pull_mix_max_pending
+        self.protected_pull_mix_max_long_fraction = protected_pull_mix_max_long_fraction
+        self.protected_pull_beam_horizon = protected_pull_beam_horizon
+        self.protected_pull_beam_width = protected_pull_beam_width
+        self.protected_pull_beam_branch_width = protected_pull_beam_branch_width
+        self.protected_pull_beam_risk_slack_s = protected_pull_beam_risk_slack_s
+        self.protected_pull_beam_min_pending = protected_pull_beam_min_pending
+        self.protected_pull_beam_max_pending = protected_pull_beam_max_pending
+        self.protected_pull_beam_history_size = protected_pull_beam_history_size
+        self.protected_pull_beam_candidate_cap = protected_pull_beam_candidate_cap
         self.protected_pull_risk_slack_s = protected_pull_risk_slack_s
         self.protected_pull_guard_fraction = protected_pull_guard_fraction
         self.protected_pull_guard_max = protected_pull_guard_max
@@ -1126,6 +1228,7 @@ class TwoQueueScheduler:
         self.protected_pull_tail_head_start = protected_pull_tail_head_start
         self.protected_pull_cost_s = protected_pull_cost_s
         self._bypass_counts: dict[str, int] = {}
+        self.last_release_calendar_plan: ReleaseCalendarPlan | None = None
 
     @staticmethod
     def _arrival_ordered(requests: list[RequestView], order: str) -> RequestView:
@@ -1192,11 +1295,35 @@ class TwoQueueScheduler:
         queue_depth = len(requests)
         beta = (
             self.protected_pull_band_risk_beta
-            if self.protected_pull_band_min_pending
-            <= queue_depth
-            <= self.protected_pull_band_max_pending
+            if self.protected_pull_band_min_pending <= queue_depth <= self.protected_pull_band_max_pending
             else self.protected_pull_risk_beta
         )
+        return self._cost_damped_risk(requests, now_s, beta=beta)
+
+    def _queue_mix_risk(
+        self,
+        requests: list[RequestView],
+        now_s: float,
+    ) -> RequestView:
+        """Adapt the queue-band beta when the online queue has few long jobs.
+
+        The calibrated Wan2.2 simulator names the request class ``long``. That
+        class uses the same service-size anchors that satisfy production's
+        near-maximum plus clearly-long predicate.
+        """
+
+        queue_depth = len(requests)
+        long_fraction = sum(request.request_type_name.strip().lower() == "long" for request in requests) / queue_depth
+        mix_active = (
+            self.protected_pull_mix_min_pending <= queue_depth <= self.protected_pull_mix_max_pending
+            and long_fraction <= self.protected_pull_mix_max_long_fraction
+        )
+        if mix_active:
+            beta = self.protected_pull_mix_risk_beta
+        elif self.protected_pull_band_min_pending <= queue_depth <= self.protected_pull_band_max_pending:
+            beta = self.protected_pull_band_risk_beta
+        else:
+            beta = self.protected_pull_risk_beta
         return self._cost_damped_risk(requests, now_s, beta=beta)
 
     def _risk_slack_srpt(
@@ -1206,16 +1333,12 @@ class TwoQueueScheduler:
     ) -> RequestView:
         """Use SRPT only inside a configurable band below the maximum risk."""
 
-        risk_by_id = {
-            request.request_id: self._quantile_risk(request, now_s)
-            for request in requests
-        }
+        risk_by_id = {request.request_id: self._quantile_risk(request, now_s) for request in requests}
         maximum_risk_s = max(risk_by_id.values())
         urgent = [
             request
             for request in requests
-            if risk_by_id[request.request_id]
-            >= maximum_risk_s - self.protected_pull_risk_slack_s
+            if risk_by_id[request.request_id] >= maximum_risk_s - self.protected_pull_risk_slack_s
         ]
         return min(
             urgent,
@@ -1244,9 +1367,7 @@ class TwoQueueScheduler:
         )
         guard_count = 0
         if len(ordered) >= self.protected_pull_guard_min_pending:
-            guard_count = math.floor(
-                len(ordered) * self.protected_pull_guard_fraction + 1e-12
-            )
+            guard_count = math.floor(len(ordered) * self.protected_pull_guard_fraction + 1e-12)
             if self.protected_pull_guard_max is not None:
                 guard_count = min(guard_count, self.protected_pull_guard_max)
             guard_count = min(guard_count, len(ordered) - 1)
@@ -1346,9 +1467,17 @@ class TwoQueueScheduler:
         *,
         now_s: float,
         pending: tuple[RequestView, ...],
+        release_calendar_s: tuple[float, ...] | None = None,
+        first_backend_index: int = 0,
+        completed_latencies_s: tuple[float, ...] = (),
+        active_normal_projected_latencies_s: tuple[float, ...] = (),
+        outstanding_tail_count: int = 0,
+        release_calendar_unavailable_reason: str = ("missing_release_calendar"),
+        backend_estimates_s_by_request: (dict[str, tuple[float, ...]] | None) = None,
     ) -> str | None:
         """Select from the never-started online global Normal pool."""
 
+        self.last_release_calendar_plan = None
         normal = [request for request in pending if request.priority == Priority.NORMAL]
         if not normal:
             return None
@@ -1360,6 +1489,47 @@ class TwoQueueScheduler:
             return self._cost_damped_risk(normal, now_s).request_id
         if self.protected_pull_order == "queue_band_risk":
             return self._queue_band_risk(normal, now_s).request_id
+        if self.protected_pull_order == "queue_mix_risk":
+            return self._queue_mix_risk(normal, now_s).request_id
+        if self.protected_pull_order == "tail_aware_release_calendar_beam":
+            estimates_by_request = backend_estimates_s_by_request or {}
+            planner_requests = [
+                ReleaseCalendarRequest(
+                    request_id=request.request_id,
+                    sequence=request.arrival_seq,
+                    arrival_time_s=request.arrival_time_s,
+                    estimated_service_s_by_backend=estimates_by_request.get(
+                        request.request_id,
+                        tuple(request.estimated_total_s for _ in (release_calendar_s or (0.0,))),
+                    ),
+                )
+                for request in normal
+            ]
+            self.last_release_calendar_plan = plan_release_calendar(
+                pending=planner_requests,
+                now_s=now_s,
+                release_calendar_s=release_calendar_s,
+                first_backend_index=first_backend_index,
+                completed_latencies_s=completed_latencies_s,
+                active_normal_projected_latencies_s=(active_normal_projected_latencies_s),
+                outstanding_tail_count=outstanding_tail_count,
+                unavailable_release_reason=(release_calendar_unavailable_reason),
+                config=ReleaseCalendarBeamConfig(
+                    horizon=self.protected_pull_beam_horizon,
+                    beam_width=self.protected_pull_beam_width,
+                    branch_width=self.protected_pull_beam_branch_width,
+                    risk_slack_s=(self.protected_pull_beam_risk_slack_s),
+                    min_pending=self.protected_pull_beam_min_pending,
+                    max_pending=self.protected_pull_beam_max_pending,
+                    history_size=self.protected_pull_beam_history_size,
+                    candidate_cap=self.protected_pull_beam_candidate_cap,
+                    risk_beta=self.protected_pull_risk_beta,
+                    band_risk_beta=self.protected_pull_band_risk_beta,
+                    band_min_pending=(self.protected_pull_band_min_pending),
+                    band_max_pending=(self.protected_pull_band_max_pending),
+                ),
+            )
+            return self.last_release_calendar_plan.selected_request_id
         if self.protected_pull_order == "risk_slack_srpt":
             return self._risk_slack_srpt(normal, now_s).request_id
         if self.protected_pull_order == "guarded_max_risk":
@@ -1638,6 +1808,18 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
                 "protected_pull_band_risk_beta",
                 "protected_pull_band_min_pending",
                 "protected_pull_band_max_pending",
+                "protected_pull_mix_risk_beta",
+                "protected_pull_mix_min_pending",
+                "protected_pull_mix_max_pending",
+                "protected_pull_mix_max_long_fraction",
+                "protected_pull_beam_horizon",
+                "protected_pull_beam_width",
+                "protected_pull_beam_branch_width",
+                "protected_pull_beam_risk_slack_s",
+                "protected_pull_beam_min_pending",
+                "protected_pull_beam_max_pending",
+                "protected_pull_beam_history_size",
+                "protected_pull_beam_candidate_cap",
                 "protected_pull_risk_slack_s",
                 "protected_pull_guard_fraction",
                 "protected_pull_guard_max",
@@ -1698,6 +1880,54 @@ def build_scheduler(config: ComponentConfig) -> LocalScheduler:
             protected_pull_band_max_pending=_as_int(
                 options.get("protected_pull_band_max_pending", 27),
                 "scheduler.protected_pull_band_max_pending",
+            ),
+            protected_pull_mix_risk_beta=_as_float(
+                options.get("protected_pull_mix_risk_beta", 0.4),
+                "scheduler.protected_pull_mix_risk_beta",
+            ),
+            protected_pull_mix_min_pending=_as_int(
+                options.get("protected_pull_mix_min_pending", 16),
+                "scheduler.protected_pull_mix_min_pending",
+            ),
+            protected_pull_mix_max_pending=_as_int(
+                options.get("protected_pull_mix_max_pending", 26),
+                "scheduler.protected_pull_mix_max_pending",
+            ),
+            protected_pull_mix_max_long_fraction=_as_float(
+                options.get("protected_pull_mix_max_long_fraction", 0.32),
+                "scheduler.protected_pull_mix_max_long_fraction",
+            ),
+            protected_pull_beam_horizon=_as_int(
+                options.get("protected_pull_beam_horizon", 4),
+                "scheduler.protected_pull_beam_horizon",
+            ),
+            protected_pull_beam_width=_as_int(
+                options.get("protected_pull_beam_width", 16),
+                "scheduler.protected_pull_beam_width",
+            ),
+            protected_pull_beam_branch_width=_as_int(
+                options.get("protected_pull_beam_branch_width", 6),
+                "scheduler.protected_pull_beam_branch_width",
+            ),
+            protected_pull_beam_risk_slack_s=_as_float(
+                options.get("protected_pull_beam_risk_slack_s", 100.0),
+                "scheduler.protected_pull_beam_risk_slack_s",
+            ),
+            protected_pull_beam_min_pending=_as_int(
+                options.get("protected_pull_beam_min_pending", 10),
+                "scheduler.protected_pull_beam_min_pending",
+            ),
+            protected_pull_beam_max_pending=_as_int(
+                options.get("protected_pull_beam_max_pending", 27),
+                "scheduler.protected_pull_beam_max_pending",
+            ),
+            protected_pull_beam_history_size=_as_int(
+                options.get("protected_pull_beam_history_size", 128),
+                "scheduler.protected_pull_beam_history_size",
+            ),
+            protected_pull_beam_candidate_cap=_as_int(
+                options.get("protected_pull_beam_candidate_cap", 4096),
+                "scheduler.protected_pull_beam_candidate_cap",
             ),
             protected_pull_risk_slack_s=_as_float(
                 options.get("protected_pull_risk_slack_s", 0.0),

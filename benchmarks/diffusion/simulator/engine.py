@@ -277,10 +277,7 @@ class Simulator:
                 return None, 0.0
             if not getattr(self.scheduler, "preempt_normal_over_sacrificial", False):
                 return None, 0.0
-        if any(
-            self.requests[request_id].priority == Priority.NORMAL
-            for request_id in target.pending_ids
-        ):
+        if any(self.requests[request_id].priority == Priority.NORMAL for request_id in target.pending_ids):
             return None, 0.0
 
         candidate_views = tuple(
@@ -289,7 +286,14 @@ class Simulator:
         choose_protected_pull = getattr(self.scheduler, "choose_protected_pull", None)
         if not candidate_views or choose_protected_pull is None:
             return None, 0.0
-        selected_id = choose_protected_pull(now_s=self._now_s, pending=candidate_views)
+        planner_kwargs: dict[str, Any] = {}
+        if getattr(self.scheduler, "protected_pull_order", "") == "tail_aware_release_calendar_beam":
+            planner_kwargs = self._release_calendar_planner_context(target)
+        selected_id = choose_protected_pull(
+            now_s=self._now_s,
+            pending=candidate_views,
+            **planner_kwargs,
+        )
         if selected_id is None:
             return None, 0.0
         if selected_id not in self._global_normal_waiting_ids:
@@ -313,6 +317,11 @@ class Simulator:
         self._central_pull_time_s[selected_id] = self._now_s
         self._protected_pulls += 1
         cost_s = float(getattr(self.scheduler, "protected_pull_cost_s", 0.0))
+        planner = getattr(
+            self.scheduler,
+            "last_release_calendar_plan",
+            None,
+        )
         self._trace(
             "protected_pull",
             request=request,
@@ -323,8 +332,108 @@ class Simulator:
             target_estimate_s=target_estimate_s,
             queue_depth_before=queue_depth_before,
             queue_depth_after=len(self._global_normal_waiting_ids),
+            planner_used_beam=(planner.used_beam if planner is not None else None),
+            planner_fallback_reason=(planner.fallback_reason if planner is not None else None),
+            planner_elapsed_ms=(planner.elapsed_ms if planner is not None else None),
+            planner_candidate_count=(planner.candidate_count if planner is not None else None),
+            planner_predicted_before_p95_s=(planner.predicted_before_p95_s if planner is not None else None),
+            planner_predicted_after_p95_s=(planner.predicted_after_p95_s if planner is not None else None),
+            planner_predicted_before_mean_s=(planner.predicted_before_mean_s if planner is not None else None),
+            planner_predicted_after_mean_s=(planner.predicted_after_mean_s if planner is not None else None),
+            planner_predicted_before_normal_boundary_s=(
+                planner.predicted_before_normal_boundary_s if planner is not None else None
+            ),
+            planner_predicted_after_normal_boundary_s=(
+                planner.predicted_after_normal_boundary_s if planner is not None else None
+            ),
+            planner_prefix=(planner.prefix if planner is not None else None),
+            planner_release_calendar_s=(planner.release_calendar_s if planner is not None else None),
+            planner_completed_history_count=(planner.completed_history_count if planner is not None else None),
+            planner_active_normal_count=(planner.active_normal_count if planner is not None else None),
+            planner_outstanding_tail_count=(planner.outstanding_tail_count if planner is not None else None),
+            planner_projected_cohort_size=(planner.projected_cohort_size if planner is not None else None),
         )
         return selected_id, cost_s
+
+    def _release_calendar_planner_context(
+        self,
+        target: BackendState,
+    ) -> dict[str, Any]:
+        """Build online-only release state for the shared beam planner."""
+
+        backends = list(self.backends.values())
+        target_index = backends.index(target)
+        releases_s: list[float] = []
+        active_normal_latencies_s: list[float] = []
+        context_complete = True
+        unavailable_reason = "missing_active_normal_eta"
+        for backend in backends:
+            running = self.requests.get(backend.running_id) if backend.running_id is not None else None
+            if running is not None and running.priority == Priority.SACRIFICIAL:
+                # A running Tail has no production-equivalent remaining-time
+                # signal. Match production's safe Queue-Band fallback instead
+                # of pretending that backend releases immediately.
+                context_complete = False
+                unavailable_reason = "running_tail_eta_unavailable"
+                break
+            active = [
+                request
+                for request in self.requests.values()
+                if request.backend_name == backend.name
+                and request.priority == Priority.NORMAL
+                and request.status != RequestStatus.COMPLETED
+                and request.request_id not in self._global_normal_waiting_ids
+            ]
+            if not active:
+                releases_s.append(0.0)
+                continue
+            if len(active) != 1:
+                context_complete = False
+                break
+            request = active[0]
+            bind_at_s = self._central_pull_time_s.get(request.request_id)
+            if bind_at_s is None:
+                context_complete = False
+                break
+            estimate_s = request.estimated_total_on_backend_s(backend.config.speed)
+            release_s = max(
+                bind_at_s + estimate_s - self._now_s,
+                0.0,
+            )
+            releases_s.append(release_s)
+            active_normal_latencies_s.append(self._now_s + release_s - request.arrival_time_s)
+
+        completed = sorted(
+            (
+                request
+                for request in self.requests.values()
+                if request.status == RequestStatus.COMPLETED and request.completion_time_s is not None
+            ),
+            key=lambda request: (
+                request.completion_time_s,
+                request.arrival_seq,
+            ),
+        )
+        outstanding_tail_count = sum(
+            request.priority == Priority.SACRIFICIAL
+            and request.status not in {RequestStatus.NOT_ARRIVED, RequestStatus.COMPLETED}
+            for request in self.requests.values()
+        )
+        estimates_by_request = {
+            request_id: tuple(
+                self.requests[request_id].estimated_total_on_backend_s(backend.config.speed) for backend in backends
+            )
+            for request_id in self._global_normal_waiting_ids
+        }
+        return {
+            "release_calendar_s": (tuple(releases_s) if context_complete else None),
+            "first_backend_index": target_index,
+            "completed_latencies_s": tuple(request.latency_s for request in completed),
+            "active_normal_projected_latencies_s": tuple(active_normal_latencies_s),
+            "outstanding_tail_count": outstanding_tail_count,
+            "release_calendar_unavailable_reason": unavailable_reason,
+            "backend_estimates_s_by_request": estimates_by_request,
+        }
 
     def _schedule_idle_backends_for_protected_pull(self) -> None:
         """Offer global work to idle backends in a stable fastest-first order."""
@@ -523,10 +632,7 @@ class Simulator:
             and bool(getattr(self.scheduler, "global_protected_pull", False))
             and bool(getattr(self.scheduler, "protected_pull_tail_head_start", False))
             and bool(self._global_normal_waiting_ids)
-            and any(
-                self.requests[request_id].priority == Priority.SACRIFICIAL
-                for request_id in backend.pending_ids
-            )
+            and any(self.requests[request_id].priority == Priority.SACRIFICIAL for request_id in backend.pending_ids)
         )
         if tail_head_start:
             pulled_id, protected_pull_cost_s = None, 0.0

@@ -504,6 +504,10 @@ def test_new_policy_components_build_from_config() -> None:
             "protected_pull_band_risk_beta": 0.625,
             "protected_pull_band_min_pending": 10,
             "protected_pull_band_max_pending": 27,
+            "protected_pull_mix_risk_beta": 0.4,
+            "protected_pull_mix_min_pending": 16,
+            "protected_pull_mix_max_pending": 26,
+            "protected_pull_mix_max_long_fraction": 0.32,
             "protected_pull_risk_slack_s": 30.0,
             "protected_pull_guard_fraction": 0.04,
             "protected_pull_guard_max": 2,
@@ -537,6 +541,10 @@ def test_new_policy_components_build_from_config() -> None:
     assert simulator.scheduler.protected_pull_band_risk_beta == pytest.approx(0.625)
     assert simulator.scheduler.protected_pull_band_min_pending == 10
     assert simulator.scheduler.protected_pull_band_max_pending == 27
+    assert simulator.scheduler.protected_pull_mix_risk_beta == pytest.approx(0.4)
+    assert simulator.scheduler.protected_pull_mix_min_pending == 16
+    assert simulator.scheduler.protected_pull_mix_max_pending == 26
+    assert simulator.scheduler.protected_pull_mix_max_long_fraction == pytest.approx(0.32)
     assert simulator.scheduler.protected_pull_risk_slack_s == pytest.approx(30.0)
     assert simulator.scheduler.protected_pull_guard_fraction == pytest.approx(0.04)
     assert simulator.scheduler.protected_pull_guard_max == 2
@@ -1596,6 +1604,21 @@ def test_two_queue_bounded_srpt_aging_forces_an_old_waiter() -> None:
             "protected_pull_band_min_pending must be positive",
         ),
         (
+            "protected_pull_mix_risk_beta",
+            -1.0,
+            "protected_pull_mix_risk_beta cannot be negative",
+        ),
+        (
+            "protected_pull_mix_min_pending",
+            0,
+            "protected_pull_mix_min_pending must be positive",
+        ),
+        (
+            "protected_pull_mix_max_long_fraction",
+            1.1,
+            "protected_pull_mix_max_long_fraction must be in",
+        ),
+        (
             "protected_pull_risk_slack_s",
             -1.0,
             "protected_pull_risk_slack_s cannot be negative",
@@ -1959,6 +1982,10 @@ def test_disabled_global_protected_pull_preserves_legacy_runtime_behavior() -> N
             "queue_band_risk",
             ["request-00000", "request-00002", "request-00001"],
         ),
+        (
+            "queue_mix_risk",
+            ["request-00000", "request-00002", "request-00001"],
+        ),
         ("risk_slack_srpt", ["request-00000", "request-00002", "request-00001"]),
         ("guarded_max_risk", ["request-00000", "request-00002", "request-00001"]),
         ("arrival_plus_cost", ["request-00000", "request-00001", "request-00002"]),
@@ -2016,6 +2043,7 @@ def test_global_protected_pull_order_is_online_and_configurable(
         ("max_risk", "request-0"),
         ("cost_damped_risk", "request-0"),
         ("queue_band_risk", "request-0"),
+        ("queue_mix_risk", "request-0"),
         ("risk_slack_srpt", "request-0"),
         ("guarded_max_risk", "request-0"),
         ("arrival_plus_cost", "request-1"),
@@ -2184,6 +2212,73 @@ def test_queue_band_risk_changes_beta_only_inside_pending_band() -> None:
     assert scheduler.choose_protected_pull(
         now_s=10.0,
         pending=(old_short, newer_long, filler),
+    ) == newer_long.request_id
+
+
+def test_queue_mix_risk_uses_low_beta_only_for_low_long_fraction() -> None:
+    old_short = _request_view(
+        0,
+        Priority.NORMAL,
+        request_type_name="short",
+        arrival_time_s=0.0,
+        estimated_total_s=1.0,
+        estimated_remaining_s=1.0,
+    )
+    newer_long = _request_view(
+        1,
+        Priority.NORMAL,
+        request_type_name="long",
+        arrival_time_s=9.6,
+        estimated_total_s=20.0,
+        estimated_remaining_s=20.0,
+    )
+    filler_short_1 = _request_view(
+        2,
+        Priority.NORMAL,
+        request_type_name="short",
+        arrival_time_s=9.9,
+        estimated_total_s=1.0,
+        estimated_remaining_s=1.0,
+    )
+    filler_short_2 = _request_view(
+        3,
+        Priority.NORMAL,
+        request_type_name="short",
+        arrival_time_s=9.9,
+        estimated_total_s=1.0,
+        estimated_remaining_s=1.0,
+    )
+    filler_long = _request_view(
+        4,
+        Priority.NORMAL,
+        request_type_name="long",
+        arrival_time_s=9.9,
+        estimated_total_s=20.0,
+        estimated_remaining_s=20.0,
+    )
+    scheduler = TwoQueueScheduler(
+        normal_order="fifo",
+        sacrificial_order="lifo",
+        preempt_normal_over_sacrificial=True,
+        global_protected_pull=True,
+        protected_pull_order="queue_mix_risk",
+        protected_pull_risk_beta=0.85,
+        protected_pull_band_risk_beta=0.625,
+        protected_pull_band_min_pending=4,
+        protected_pull_band_max_pending=4,
+        protected_pull_mix_risk_beta=0.4,
+        protected_pull_mix_min_pending=4,
+        protected_pull_mix_max_pending=4,
+        protected_pull_mix_max_long_fraction=0.32,
+    )
+
+    assert scheduler.choose_protected_pull(
+        now_s=10.0,
+        pending=(old_short, newer_long, filler_short_1, filler_short_2),
+    ) == old_short.request_id
+    assert scheduler.choose_protected_pull(
+        now_s=10.0,
+        pending=(old_short, newer_long, filler_short_1, filler_long),
     ) == newer_long.request_id
 
 
