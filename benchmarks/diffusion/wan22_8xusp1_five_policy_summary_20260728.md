@@ -31,14 +31,22 @@ P95 降幅 = (对照 P95 - 当前 P95) / 对照 P95
 
 | 方案 | P95 | 相对上一已测方案 | 相对 2×USP4 | 相对假设 baseline | 状态 |
 |---|---:|---:|---:|---:|---|
-| 原策略 8×USP1 | 待测 | — | — | — | 待补测 |
+| 原策略 8×USP1 | 待测 | — | — | — | 测试中 |
 | Central Pull + Cost-Damped Risk β=0.5 + Tail Spread | 2431.107s | — | 降低 19.241%，1.238× | 降低 43.468%，1.769× | 已实测 |
-| Central Pull + Cost-Damped Risk β=0.95 + Tail Pack | 待测 | — | — | — | 待补测 |
+| Central Pull + Cost-Damped Risk β=0.95 + Tail Pack | 待测 | — | — | — | 排队等待测试 |
 | Central Pull + Cost-Damped Risk β=0.85 + Tail Pack + Tail Gate | 2177.259s | 比 β=0.5 降低 10.442%，1.117× | 降低 27.673%，1.383× | 降低 49.371%，1.975× | 已实测 |
 | Central Pull + Tail-aware Release-Calendar Beam + Tail Pack + Tail Gate | **2122.506s** | 比 β=0.85 降低 **2.515%，1.026×** | 降低 **29.492%，1.418×** | 降低 **50.644%，2.026×** | 已实测 |
 
 当前 req100 的最低实测 P95 是 Beam 的 **2122.506s**。原策略和
 `β=0.95 + Tail Pack` 尚无同口径 NPU 实测；补测后再计算完整的逐步增益。
+
+两项补测已按以下顺序在服务器后台串行启动：
+
+1. `wan22_original_8xusp1_req100_20260728_040500`
+2. `wan22_beta095_tail_pack_req100_20260728_040501`
+
+两轮均固定使用 `100 requests / 0.03 rps / seed=42`；第一轮完成并清理 8 个
+backend 后，第二轮才会开始。
 
 ## 各方案只改变什么
 
