@@ -119,3 +119,7 @@ cat "/tmp/${exp}/processes_after_cleanup.txt"
 - Stable P95 Pairwise Controller 已验证，但弱于 Beam：req=50 平均改善约 1.129%，req=100 约 0.571%，暂不消耗 NPU。
 
 这些探索都必须先在同种子 req=50/100 仿真上超过 Beam，并保持 P99/makespan 无显著回退，才进入下一轮 NPU 测试。
+
+Min-Cost Matching 首版已经收口：seed=42 req=50 为 1718.310s，没有改变 Queue-Band 的选择，也没有超过 Beam；规划耗时平均 2.01ms、P95 4.75ms。暂不集成。研究原型和续接说明位于 `/tmp/wan22_online_matching_prototype.py` 与 `/tmp/wan22_online_matching_handoff.md`。
+
+Quantile Shadow-Price 首版也已收口，但局部有限差分定价明显失败：req=50 / 100 seeds 的 P95 相对 Queue-Band 回退 16.413%，req=100 / 60 seeds 回退 9.781%。原因是局部价格没有表达后续 release chain 的连锁影响；不集成、不做 NPU。原型和续接说明位于 `/tmp/wan22_quantile_shadow_controller.py` 与 `/tmp/wan22_quantile_shadow_handoff.md`。
