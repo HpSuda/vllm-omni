@@ -1,0 +1,667 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="867" viewBox="0 0 1600 867" role="img" aria-label="五种 Wan2.2 调度策略的 backend 行为时间线">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#172033}
+.title{font-size:20px;font-weight:700}.subtitle{font-size:13px;fill:#4d586b}
+.policy{font-size:14px;font-weight:700}.lane{font-size:10px;fill:#657086}
+.axis{font-size:10px;fill:#657086}.small{font-size:10px}.note{font-size:11px;fill:#4d586b}
+</style>
+<rect width="1600" height="867" fill="#ffffff"/>
+<text x="32" y="32" class="title">同一请求流下的 backend 执行时间线</text>
+<text x="32" y="55" class="subtitle">每个色块是一段真实运行；同一 Tail 被抢占时会分裂为多段。所有面板共用横轴。</text>
+<text x="20" y="91" class="policy">原策略 8×USP1</text>
+<text x="20" y="108" class="note">P95 2315.7s · makespan 6050.7s · 抢占 0 次</text>
+<text x="181" y="126" text-anchor="end" class="lane">B0</text>
+<rect x="190" y="117" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="190.00" y="118" width="103.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00000 · long · Normal · 0.0–638.6s</title></rect>
+<rect x="293.30" y="118" width="100.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00015 · long · Normal · 638.6–1257.1s</title></rect>
+<rect x="393.35" y="118" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00025 · medium · Normal · 1257.1–1476.7s</title></rect>
+<rect x="428.87" y="118" width="103.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00036 · long · Normal · 1476.7–2116.5s</title></rect>
+<rect x="532.37" y="118" width="17.10" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00041 · short · Normal · 2116.5–2222.2s</title></rect>
+<rect x="549.47" y="118" width="35.78" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00042 · medium · Normal · 2222.2–2443.4s</title></rect>
+<rect x="585.25" y="118" width="35.86" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00051 · medium · Normal · 2443.4–2665.0s</title></rect>
+<rect x="621.10" y="118" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00059 · medium · Normal · 2665.0–2887.4s</title></rect>
+<rect x="657.08" y="118" width="100.60" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00071 · long · Normal · 2887.4–3509.3s</title></rect>
+<rect x="757.68" y="118" width="102.14" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00076 · long · Normal · 3509.3–4140.7s</title></rect>
+<rect x="859.82" y="118" width="106.17" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00086 · long · Normal · 4140.7–4797.0s</title></rect>
+<rect x="965.99" y="118" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00095 · medium · Normal · 4797.0–5019.0s</title></rect>
+<text x="181" y="138" text-anchor="end" class="lane">B1</text>
+<rect x="190" y="129" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.50" y="130" width="17.07" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00001 · short · Normal · 34.0–139.5s</title></rect>
+<rect x="224.02" y="130" width="16.93" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00007 · short · Normal · 210.3–315.0s</title></rect>
+<rect x="240.96" y="130" width="16.89" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00009 · short · Normal · 315.0–419.4s</title></rect>
+<rect x="257.85" y="130" width="36.32" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00013 · medium · Normal · 419.4–643.9s</title></rect>
+<rect x="294.17" y="130" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00016 · medium · Normal · 643.9–863.5s</title></rect>
+<rect x="329.68" y="130" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00023 · medium · Normal · 863.5–1082.8s</title></rect>
+<rect x="365.16" y="130" width="17.19" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00026 · short · Normal · 1082.8–1189.1s</title></rect>
+<rect x="382.36" y="130" width="102.87" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00028 · long · Normal · 1189.1–1825.1s</title></rect>
+<rect x="485.23" y="130" width="103.44" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00037 · long · Normal · 1825.1–2464.5s</title></rect>
+<rect x="588.67" y="130" width="35.41" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00047 · medium · Normal · 2464.5–2683.4s</title></rect>
+<rect x="624.08" y="130" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00052 · medium · Normal · 2683.4–2905.4s</title></rect>
+<rect x="659.99" y="130" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00064 · long · Normal · 2905.4–3538.6s</title></rect>
+<rect x="762.41" y="130" width="101.83" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00082 · long · Normal · 3538.6–4168.1s</title></rect>
+<rect x="864.25" y="130" width="100.38" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00087 · long · Normal · 4168.1–4788.6s</title></rect>
+<rect x="964.63" y="130" width="101.25" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00096 · long · Normal · 4788.6–5414.5s</title></rect>
+<rect x="1065.88" y="130" width="102.92" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 5414.5–6050.7s</title></rect>
+<text x="181" y="150" text-anchor="end" class="lane">B2</text>
+<rect x="190" y="141" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.64" y="142" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00002 · medium · Normal · 34.8–255.1s</title></rect>
+<rect x="231.26" y="142" width="35.55" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00010 · medium · Normal · 255.1–474.9s</title></rect>
+<rect x="266.82" y="142" width="17.18" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00012 · short · Normal · 474.9–581.1s</title></rect>
+<rect x="284.00" y="142" width="102.66" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00014 · long · Normal · 581.1–1215.7s</title></rect>
+<rect x="386.66" y="142" width="101.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00024 · long · Normal · 1215.7–1841.3s</title></rect>
+<rect x="487.85" y="142" width="102.54" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00040 · long · Normal · 1841.3–2475.2s</title></rect>
+<rect x="590.39" y="142" width="35.92" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00043 · medium · Normal · 2475.2–2697.2s</title></rect>
+<rect x="626.31" y="142" width="102.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00063 · long · Normal · 2697.2–3328.1s</title></rect>
+<rect x="728.37" y="142" width="102.33" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00065 · long · Normal · 3328.1–3960.7s</title></rect>
+<rect x="830.70" y="142" width="35.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00084 · medium · Normal · 3960.7–4178.8s</title></rect>
+<rect x="865.98" y="142" width="17.15" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00088 · short · Normal · 4178.8–4284.8s</title></rect>
+<rect x="883.13" y="142" width="98.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00091 · long · Normal · 4284.8–4896.6s</title></rect>
+<rect x="982.10" y="142" width="101.56" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 4896.6–5524.4s</title></rect>
+<text x="181" y="162" text-anchor="end" class="lane">B3</text>
+<rect x="190" y="153" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="197.37" y="154" width="36.01" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00003 · medium · Normal · 45.6–268.2s</title></rect>
+<rect x="233.38" y="154" width="101.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00011 · long · Normal · 268.2–894.6s</title></rect>
+<rect x="334.72" y="154" width="102.43" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00017 · long · Normal · 894.6–1527.8s</title></rect>
+<rect x="437.15" y="154" width="36.25" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00034 · medium · Normal · 1527.8–1751.9s</title></rect>
+<rect x="473.40" y="154" width="101.51" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00039 · long · Normal · 1751.9–2379.4s</title></rect>
+<rect x="574.91" y="154" width="104.22" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00055 · long · Normal · 2379.4–3023.7s</title></rect>
+<rect x="679.12" y="154" width="99.77" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00061 · long · Normal · 3023.7–3640.4s</title></rect>
+<rect x="778.89" y="154" width="35.90" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00068 · medium · Normal · 3640.4–3862.4s</title></rect>
+<rect x="814.79" y="154" width="35.39" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00079 · medium · Normal · 3862.4–4081.1s</title></rect>
+<rect x="850.18" y="154" width="102.90" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00093 · long · Normal · 4081.1–4717.2s</title></rect>
+<rect x="953.08" y="154" width="103.23" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 4717.2–5355.3s</title></rect>
+<text x="181" y="174" text-anchor="end" class="lane">B4</text>
+<rect x="190" y="165" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="198.73" y="166" width="100.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00004 · long · Normal · 54.0–676.7s</title></rect>
+<rect x="299.47" y="166" width="35.36" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00022 · medium · Normal · 676.7–895.3s</title></rect>
+<rect x="334.83" y="166" width="100.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00029 · long · Normal · 895.3–1514.7s</title></rect>
+<rect x="435.02" y="166" width="102.09" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00035 · long · Normal · 1514.7–2145.8s</title></rect>
+<rect x="537.11" y="166" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00048 · long · Normal · 2145.8–2778.9s</title></rect>
+<rect x="639.53" y="166" width="101.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00057 · long · Normal · 2778.9–3406.4s</title></rect>
+<rect x="741.03" y="166" width="16.98" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00067 · short · Normal · 3406.4–3511.3s</title></rect>
+<rect x="758.01" y="166" width="35.47" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00073 · medium · Normal · 3511.3–3730.6s</title></rect>
+<rect x="793.48" y="166" width="100.58" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00077 · long · Normal · 3730.6–4352.3s</title></rect>
+<rect x="894.05" y="166" width="17.02" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00090 · short · Normal · 4352.3–4457.6s</title></rect>
+<rect x="911.07" y="166" width="101.78" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 4457.6–5086.7s</title></rect>
+<text x="181" y="186" text-anchor="end" class="lane">B5</text>
+<rect x="190" y="177" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="205.92" y="178" width="102.21" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00005 · long · Normal · 98.4–730.3s</title></rect>
+<rect x="308.14" y="178" width="16.70" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00019 · short · Normal · 730.3–833.6s</title></rect>
+<rect x="324.84" y="178" width="17.04" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00027 · short · Normal · 833.6–938.9s</title></rect>
+<rect x="341.88" y="178" width="99.37" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00030 · long · Normal · 938.9–1553.2s</title></rect>
+<rect x="441.25" y="178" width="100.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00033 · long · Normal · 1553.2–2173.5s</title></rect>
+<rect x="541.59" y="178" width="16.85" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00044 · short · Normal · 2173.5–2277.6s</title></rect>
+<rect x="558.44" y="178" width="35.75" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00049 · medium · Normal · 2277.6–2498.7s</title></rect>
+<rect x="594.20" y="178" width="35.37" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00056 · medium · Normal · 2498.7–2717.3s</title></rect>
+<rect x="629.57" y="178" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00058 · medium · Normal · 2717.3–2939.8s</title></rect>
+<rect x="665.55" y="178" width="35.45" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00069 · medium · Normal · 2939.8–3158.9s</title></rect>
+<rect x="701.00" y="178" width="102.28" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00074 · long · Normal · 3158.9–3791.2s</title></rect>
+<rect x="803.28" y="178" width="36.62" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00085 · medium · Normal · 3791.2–4017.6s</title></rect>
+<rect x="839.91" y="178" width="17.36" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00089 · short · Normal · 4017.6–4124.9s</title></rect>
+<rect x="857.27" y="178" width="99.68" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00092 · long · Normal · 4124.9–4741.1s</title></rect>
+<rect x="956.95" y="178" width="101.85" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00099 · long · Normal · 4741.1–5370.7s</title></rect>
+<text x="181" y="198" text-anchor="end" class="lane">B6</text>
+<rect x="190" y="189" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="212.01" y="190" width="101.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00006 · long · Normal · 136.1–766.4s</title></rect>
+<rect x="313.98" y="190" width="102.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00020 · long · Normal · 766.4–1398.8s</title></rect>
+<rect x="416.28" y="190" width="101.64" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00031 · long · Normal · 1398.8–2027.1s</title></rect>
+<rect x="517.92" y="190" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00045 · medium · Normal · 2027.1–2246.5s</title></rect>
+<rect x="553.40" y="190" width="102.01" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00053 · long · Normal · 2246.5–2877.1s</title></rect>
+<rect x="655.41" y="190" width="101.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00062 · long · Normal · 2877.1–3506.0s</title></rect>
+<rect x="757.15" y="190" width="36.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00070 · medium · Normal · 3506.0–3730.4s</title></rect>
+<rect x="793.45" y="190" width="35.42" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00075 · medium · Normal · 3730.4–3949.4s</title></rect>
+<rect x="828.87" y="190" width="35.20" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00081 · medium · Normal · 3949.4–4167.0s</title></rect>
+<rect x="864.07" y="190" width="16.66" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00094 · short · Normal · 4167.0–4270.0s</title></rect>
+<rect x="880.73" y="190" width="102.29" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00097 · long · Normal · 4270.0–4902.3s</title></rect>
+<text x="181" y="210" text-anchor="end" class="lane">B7</text>
+<rect x="190" y="201" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="224.51" y="202" width="101.80" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00008 · long · Normal · 213.4–842.7s</title></rect>
+<rect x="326.31" y="202" width="101.92" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00021 · long · Normal · 842.7–1472.7s</title></rect>
+<rect x="428.23" y="202" width="102.47" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00032 · long · Normal · 1472.7–2106.1s</title></rect>
+<rect x="530.70" y="202" width="17.17" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00046 · short · Normal · 2106.1–2212.3s</title></rect>
+<rect x="547.87" y="202" width="35.66" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00050 · medium · Normal · 2212.3–2432.7s</title></rect>
+<rect x="583.53" y="202" width="100.88" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00054 · long · Normal · 2432.7–3056.3s</title></rect>
+<rect x="684.41" y="202" width="36.57" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00066 · medium · Normal · 3056.3–3282.4s</title></rect>
+<rect x="720.98" y="202" width="101.13" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00072 · long · Normal · 3282.4–3907.5s</title></rect>
+<rect x="822.10" y="202" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00078 · medium · Normal · 3907.5–4127.8s</title></rect>
+<rect x="857.73" y="202" width="102.65" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00083 · long · Normal · 4127.8–4762.3s</title></rect>
+<rect x="960.37" y="202" width="101.85" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4762.3–5391.9s</title></rect>
+<line x1="714.19" y1="116" x2="714.19" y2="214" stroke="#8a94a6" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text x="20" y="234" class="policy">Central Pull + β=0.5 + Tail Spread</text>
+<text x="20" y="251" class="note">P95 2453.2s · makespan 5651.9s · 抢占 23 次</text>
+<text x="181" y="269" text-anchor="end" class="lane">B0</text>
+<rect x="190" y="260" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="190.08" y="261" width="103.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00000 · long · Normal · 0.5–639.1s</title></rect>
+<rect x="293.46" y="261" width="102.43" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00017 · long · Normal · 639.6–1272.8s</title></rect>
+<rect x="395.97" y="261" width="99.37" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00030 · long · Normal · 1273.3–1887.6s</title></rect>
+<rect x="495.42" y="261" width="101.51" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00039 · long · Normal · 1888.1–2515.6s</title></rect>
+<rect x="597.01" y="261" width="35.41" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00047 · medium · Normal · 2516.1–2735.0s</title></rect>
+<rect x="632.50" y="261" width="101.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00057 · long · Normal · 2735.5–3362.9s</title></rect>
+<rect x="734.08" y="261" width="36.57" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00066 · medium · Normal · 3363.4–3589.4s</title></rect>
+<rect x="770.73" y="261" width="102.28" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00074 · long · Normal · 3589.9–4222.2s</title></rect>
+<rect x="873.09" y="261" width="35.20" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00081 · medium · Normal · 4222.7–4440.4s</title></rect>
+<rect x="908.38" y="261" width="35.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00084 · medium · Normal · 4440.9–4659.0s</title></rect>
+<rect x="943.74" y="261" width="101.25" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00096 · long · Normal · 4659.5–5285.4s</title></rect>
+<text x="181" y="281" text-anchor="end" class="lane">B1</text>
+<rect x="190" y="272" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.58" y="273" width="17.07" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00001 · short · Normal · 34.5–140.0s</title></rect>
+<rect x="224.10" y="273" width="16.93" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00007 · short · Normal · 210.8–315.5s</title></rect>
+<rect x="241.12" y="273" width="102.66" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00014 · long · Normal · 316.0–950.6s</title></rect>
+<rect x="343.86" y="273" width="101.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00024 · long · Normal · 951.1–1576.7s</title></rect>
+<rect x="445.13" y="273" width="17.19" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00026 · short · Normal · 1577.2–1683.5s</title></rect>
+<rect x="462.33" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 1683.5–1788.1s</title></rect>
+<rect x="479.33" y="273" width="103.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00036 · long · Normal · 1788.6–2428.4s</title></rect>
+<rect x="582.84" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 2428.4–2533.1s</title></rect>
+<rect x="599.84" y="273" width="100.88" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00054 · long · Normal · 2533.6–3157.2s</title></rect>
+<rect x="700.72" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 3157.2–3261.8s</title></rect>
+<rect x="717.73" y="273" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00064 · long · Normal · 3262.3–3895.5s</title></rect>
+<rect x="820.15" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 3895.5–4000.1s</title></rect>
+<rect x="837.16" y="273" width="35.47" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00073 · medium · Normal · 4000.6–4219.9s</title></rect>
+<rect x="872.63" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 4219.9–4324.5s</title></rect>
+<rect x="889.64" y="273" width="35.39" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00079 · medium · Normal · 4325.0–4543.8s</title></rect>
+<rect x="925.02" y="273" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 4543.8–4648.4s</title></rect>
+<rect x="942.03" y="273" width="98.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00091 · long · Normal · 4648.9–5260.7s</title></rect>
+<text x="181" y="293" text-anchor="end" class="lane">B2</text>
+<rect x="190" y="284" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.72" y="285" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00002 · medium · Normal · 35.3–255.6s</title></rect>
+<rect x="231.43" y="285" width="101.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00011 · long · Normal · 256.1–882.5s</title></rect>
+<rect x="332.84" y="285" width="17.18" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00012 · short · Normal · 883.0–989.3s</title></rect>
+<rect x="350.11" y="285" width="16.70" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00019 · short · Normal · 989.8–1093.0s</title></rect>
+<rect x="366.89" y="285" width="35.36" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00022 · medium · Normal · 1093.5–1312.1s</title></rect>
+<rect x="402.25" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 1312.1–1418.5s</title></rect>
+<rect x="419.54" y="285" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00025 · medium · Normal · 1419.0–1638.6s</title></rect>
+<rect x="455.06" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 1638.6–1744.9s</title></rect>
+<rect x="472.35" y="285" width="102.09" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00035 · long · Normal · 1745.4–2376.5s</title></rect>
+<rect x="574.44" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 2376.5–2482.9s</title></rect>
+<rect x="591.73" y="285" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00045 · medium · Normal · 2483.4–2702.7s</title></rect>
+<rect x="627.20" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 2702.7–2809.1s</title></rect>
+<rect x="644.49" y="285" width="35.66" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00050 · medium · Normal · 2809.6–3030.0s</title></rect>
+<rect x="680.15" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 3030.0–3136.4s</title></rect>
+<rect x="697.44" y="285" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00059 · medium · Normal · 3136.9–3359.3s</title></rect>
+<rect x="733.42" y="285" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 3359.3–3465.7s</title></rect>
+<rect x="750.70" y="285" width="101.13" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00072 · long · Normal · 3466.2–4091.3s</title></rect>
+<rect x="851.91" y="285" width="102.65" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00083 · long · Normal · 4091.8–4726.3s</title></rect>
+<rect x="954.64" y="285" width="17.36" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00089 · short · Normal · 4726.8–4834.2s</title></rect>
+<rect x="972.08" y="285" width="102.29" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00097 · long · Normal · 4834.7–5467.0s</title></rect>
+<text x="181" y="305" text-anchor="end" class="lane">B3</text>
+<rect x="190" y="296" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="197.45" y="297" width="36.01" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00003 · medium · Normal · 46.1–268.7s</title></rect>
+<rect x="233.55" y="297" width="35.55" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00010 · medium · Normal · 269.2–489.0s</title></rect>
+<rect x="269.10" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 489.0–593.8s</title></rect>
+<rect x="286.14" y="297" width="100.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00015 · long · Normal · 594.3–1212.8s</title></rect>
+<rect x="386.19" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 1212.8–1317.7s</title></rect>
+<rect x="403.24" y="297" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00023 · medium · Normal · 1318.2–1537.5s</title></rect>
+<rect x="438.72" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 1537.5–1642.4s</title></rect>
+<rect x="455.76" y="297" width="100.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00033 · long · Normal · 1642.9–2263.1s</title></rect>
+<rect x="556.10" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 2263.1–2368.0s</title></rect>
+<rect x="573.14" y="297" width="35.78" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00042 · medium · Normal · 2368.5–2589.7s</title></rect>
+<rect x="608.92" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 2589.7–2694.5s</title></rect>
+<rect x="625.96" y="297" width="16.85" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00044 · short · Normal · 2695.0–2799.2s</title></rect>
+<rect x="642.81" y="297" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 2799.2–2904.1s</title></rect>
+<rect x="659.86" y="297" width="35.37" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00056 · medium · Normal · 2904.6–3123.2s</title></rect>
+<rect x="695.23" y="297" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 3123.2–3228.2s</title></rect>
+<rect x="712.29" y="297" width="102.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00063 · long · Normal · 3228.7–3859.6s</title></rect>
+<rect x="814.34" y="297" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 3859.6–3964.5s</title></rect>
+<rect x="831.40" y="297" width="100.58" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00077 · long · Normal · 3965.0–4586.7s</title></rect>
+<rect x="931.97" y="297" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4586.7–4691.7s</title></rect>
+<rect x="949.03" y="297" width="102.90" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00093 · long · Normal · 4692.2–5328.3s</title></rect>
+<rect x="1051.93" y="297" width="50.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 5328.3–5643.1s</title></rect>
+<text x="181" y="317" text-anchor="end" class="lane">B4</text>
+<rect x="190" y="308" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="198.81" y="309" width="100.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00004 · long · Normal · 54.5–677.2s</title></rect>
+<rect x="299.63" y="309" width="102.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00020 · long · Normal · 677.7–1310.1s</title></rect>
+<rect x="402.01" y="309" width="101.64" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00031 · long · Normal · 1310.6–1938.9s</title></rect>
+<rect x="503.73" y="309" width="102.54" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00040 · long · Normal · 1939.4–2573.3s</title></rect>
+<rect x="606.35" y="309" width="104.22" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00055 · long · Normal · 2573.8–3218.1s</title></rect>
+<rect x="710.65" y="309" width="100.60" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00071 · long · Normal · 3218.6–3840.4s</title></rect>
+<rect x="811.33" y="309" width="16.98" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00067 · short · Normal · 3840.9–3945.9s</title></rect>
+<rect x="828.39" y="309" width="35.42" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00075 · medium · Normal · 3946.4–4165.4s</title></rect>
+<rect x="863.90" y="309" width="106.17" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00086 · long · Normal · 4165.9–4822.2s</title></rect>
+<rect x="970.14" y="309" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00095 · medium · Normal · 4822.7–5044.7s</title></rect>
+<text x="181" y="329" text-anchor="end" class="lane">B5</text>
+<rect x="190" y="320" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="206.00" y="321" width="102.21" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00005 · long · Normal · 98.9–730.8s</title></rect>
+<rect x="308.30" y="321" width="36.32" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00013 · medium · Normal · 731.3–955.8s</title></rect>
+<rect x="344.70" y="321" width="102.87" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00028 · long · Normal · 956.3–1592.2s</title></rect>
+<rect x="447.65" y="321" width="17.04" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00027 · short · Normal · 1592.7–1698.1s</title></rect>
+<rect x="464.77" y="321" width="103.44" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00037 · long · Normal · 1698.6–2338.0s</title></rect>
+<rect x="568.29" y="321" width="35.92" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00043 · medium · Normal · 2338.5–2560.6s</title></rect>
+<rect x="604.21" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 2560.6–2666.6s</title></rect>
+<rect x="621.45" y="321" width="17.10" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00041 · short · Normal · 2667.1–2772.8s</title></rect>
+<rect x="638.54" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 2772.8–2878.9s</title></rect>
+<rect x="655.78" y="321" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00052 · medium · Normal · 2879.4–3101.3s</title></rect>
+<rect x="691.69" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 3101.3–3207.4s</title></rect>
+<rect x="708.92" y="321" width="101.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00062 · long · Normal · 3207.9–3836.8s</title></rect>
+<rect x="810.66" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 3836.8–3942.9s</title></rect>
+<rect x="827.90" y="321" width="36.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00070 · medium · Normal · 3943.4–4167.7s</title></rect>
+<rect x="864.19" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 4167.7–4273.8s</title></rect>
+<rect x="881.42" y="321" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00078 · medium · Normal · 4274.3–4494.5s</title></rect>
+<rect x="917.05" y="321" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 4494.5–4600.5s</title></rect>
+<rect x="934.28" y="321" width="100.38" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00087 · long · Normal · 4601.0–5221.6s</title></rect>
+<text x="181" y="341" text-anchor="end" class="lane">B6</text>
+<rect x="190" y="332" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="212.09" y="333" width="101.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00006 · long · Normal · 136.6–766.9s</title></rect>
+<rect x="314.14" y="333" width="101.92" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00021 · long · Normal · 767.4–1397.5s</title></rect>
+<rect x="416.15" y="333" width="102.47" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00032 · long · Normal · 1398.0–2031.4s</title></rect>
+<rect x="518.69" y="333" width="102.01" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00053 · long · Normal · 2031.9–2662.5s</title></rect>
+<rect x="620.79" y="333" width="17.17" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00046 · short · Normal · 2663.0–2769.2s</title></rect>
+<rect x="638.03" y="333" width="35.86" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00051 · medium · Normal · 2769.7–2991.3s</title></rect>
+<rect x="673.97" y="333" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00058 · medium · Normal · 2991.8–3214.2s</title></rect>
+<rect x="710.03" y="333" width="102.33" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00065 · long · Normal · 3214.7–3847.3s</title></rect>
+<rect x="812.44" y="333" width="102.14" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00076 · long · Normal · 3847.8–4479.2s</title></rect>
+<rect x="914.66" y="333" width="36.62" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00085 · medium · Normal · 4479.7–4706.1s</title></rect>
+<rect x="951.36" y="333" width="17.15" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00088 · short · Normal · 4706.6–4812.6s</title></rect>
+<rect x="968.59" y="333" width="17.02" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00090 · short · Normal · 4813.1–4918.3s</title></rect>
+<rect x="985.69" y="333" width="16.66" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00094 · short · Normal · 4918.8–5021.8s</title></rect>
+<rect x="1002.43" y="333" width="101.85" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00099 · long · Normal · 5022.3–5651.9s</title></rect>
+<text x="181" y="353" text-anchor="end" class="lane">B7</text>
+<rect x="190" y="344" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="224.59" y="345" width="101.80" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00008 · long · Normal · 213.9–843.2s</title></rect>
+<rect x="326.47" y="345" width="16.89" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00009 · short · Normal · 843.7–948.1s</title></rect>
+<rect x="343.45" y="345" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00016 · medium · Normal · 948.6–1168.2s</title></rect>
+<rect x="379.05" y="345" width="100.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00029 · long · Normal · 1168.7–1788.0s</title></rect>
+<rect x="479.32" y="345" width="36.25" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00034 · medium · Normal · 1788.5–2012.6s</title></rect>
+<rect x="515.65" y="345" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00048 · long · Normal · 2013.1–2646.2s</title></rect>
+<rect x="618.15" y="345" width="35.75" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00049 · medium · Normal · 2646.7–2867.8s</title></rect>
+<rect x="653.98" y="345" width="99.77" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00061 · long · Normal · 2868.3–3485.0s</title></rect>
+<rect x="753.83" y="345" width="35.90" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00068 · medium · Normal · 3485.5–3707.4s</title></rect>
+<rect x="789.82" y="345" width="35.45" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00069 · medium · Normal · 3707.9–3927.1s</title></rect>
+<rect x="825.34" y="345" width="101.83" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00082 · long · Normal · 3927.6–4557.1s</title></rect>
+<rect x="927.26" y="345" width="99.68" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00092 · long · Normal · 4557.6–5173.8s</title></rect>
+<line x1="714.19" y1="259" x2="714.19" y2="357" stroke="#8a94a6" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text x="20" y="377" class="policy">Central Pull + β=0.95 + Tail Pack</text>
+<text x="20" y="394" class="note">P95 2198.9s · makespan 7258.1s · 抢占 10 次</text>
+<text x="181" y="412" text-anchor="end" class="lane">B0</text>
+<rect x="190" y="403" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="190.08" y="404" width="103.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00000 · long · Normal · 0.5–639.1s</title></rect>
+<rect x="293.46" y="404" width="102.43" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00017 · long · Normal · 639.6–1272.8s</title></rect>
+<rect x="395.97" y="404" width="101.64" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00031 · long · Normal · 1273.3–1901.6s</title></rect>
+<rect x="497.69" y="404" width="101.51" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00039 · long · Normal · 1902.1–2529.6s</title></rect>
+<rect x="599.28" y="404" width="35.92" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00043 · medium · Normal · 2530.1–2752.1s</title></rect>
+<rect x="635.28" y="404" width="17.10" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00041 · short · Normal · 2752.6–2858.3s</title></rect>
+<rect x="652.46" y="404" width="101.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00062 · long · Normal · 2858.8–3487.8s</title></rect>
+<rect x="754.28" y="404" width="100.58" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00077 · long · Normal · 3488.3–4110.0s</title></rect>
+<rect x="854.94" y="404" width="100.38" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00087 · long · Normal · 4110.5–4731.1s</title></rect>
+<rect x="955.40" y="404" width="17.36" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00089 · short · Normal · 4731.6–4838.9s</title></rect>
+<rect x="972.84" y="404" width="17.02" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00090 · short · Normal · 4839.4–4944.6s</title></rect>
+<text x="181" y="424" text-anchor="end" class="lane">B1</text>
+<rect x="190" y="415" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.58" y="416" width="17.07" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00001 · short · Normal · 34.5–140.0s</title></rect>
+<rect x="224.10" y="416" width="16.93" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00007 · short · Normal · 210.8–315.5s</title></rect>
+<rect x="241.12" y="416" width="102.66" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00014 · long · Normal · 316.0–950.6s</title></rect>
+<rect x="343.86" y="416" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00016 · medium · Normal · 951.1–1170.7s</title></rect>
+<rect x="379.46" y="416" width="100.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00029 · long · Normal · 1171.2–1790.6s</title></rect>
+<rect x="479.73" y="416" width="17.19" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00026 · short · Normal · 1791.1–1897.3s</title></rect>
+<rect x="497.00" y="416" width="17.04" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00027 · short · Normal · 1897.8–2003.2s</title></rect>
+<rect x="514.13" y="416" width="102.01" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00053 · long · Normal · 2003.7–2634.3s</title></rect>
+<rect x="616.22" y="416" width="35.66" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00050 · medium · Normal · 2634.8–2855.3s</title></rect>
+<rect x="651.97" y="416" width="99.77" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00061 · long · Normal · 2855.8–3472.5s</title></rect>
+<rect x="751.81" y="416" width="102.14" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00076 · long · Normal · 3473.0–4104.4s</title></rect>
+<rect x="854.03" y="416" width="35.39" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00079 · medium · Normal · 4104.9–4323.7s</title></rect>
+<rect x="889.50" y="416" width="99.68" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00092 · long · Normal · 4324.2–4940.4s</title></rect>
+<text x="181" y="436" text-anchor="end" class="lane">B2</text>
+<rect x="190" y="427" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.72" y="428" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00002 · medium · Normal · 35.3–255.6s</title></rect>
+<rect x="231.43" y="428" width="101.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00011 · long · Normal · 256.1–882.5s</title></rect>
+<rect x="332.84" y="428" width="102.87" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00028 · long · Normal · 883.0–1519.0s</title></rect>
+<rect x="435.80" y="428" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00025 · medium · Normal · 1519.5–1739.1s</title></rect>
+<rect x="471.40" y="428" width="103.44" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00037 · long · Normal · 1739.6–2379.0s</title></rect>
+<rect x="574.92" y="428" width="35.78" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00042 · medium · Normal · 2379.5–2600.7s</title></rect>
+<rect x="610.78" y="428" width="35.75" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00049 · medium · Normal · 2601.2–2822.2s</title></rect>
+<rect x="646.61" y="428" width="16.85" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00044 · short · Normal · 2822.7–2926.9s</title></rect>
+<rect x="663.55" y="428" width="102.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00063 · long · Normal · 2927.4–3558.3s</title></rect>
+<rect x="765.68" y="428" width="36.57" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00066 · medium · Normal · 3558.8–3784.8s</title></rect>
+<rect x="802.33" y="428" width="36.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00070 · medium · Normal · 3785.3–4009.7s</title></rect>
+<rect x="838.71" y="428" width="35.42" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00075 · medium · Normal · 4010.2–4229.1s</title></rect>
+<rect x="874.21" y="428" width="98.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00091 · long · Normal · 4229.6–4841.5s</title></rect>
+<rect x="973.26" y="428" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00095 · medium · Normal · 4842.0–5064.0s</title></rect>
+<text x="181" y="448" text-anchor="end" class="lane">B3</text>
+<rect x="190" y="439" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="197.45" y="440" width="36.01" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00003 · medium · Normal · 46.1–268.7s</title></rect>
+<rect x="233.55" y="440" width="35.55" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00010 · medium · Normal · 269.2–489.0s</title></rect>
+<rect x="269.10" y="440" width="16.96" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 489.0–593.8s</title></rect>
+<rect x="286.14" y="440" width="100.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00015 · long · Normal · 594.3–1212.8s</title></rect>
+<rect x="386.19" y="440" width="17.20" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 1212.8–1319.2s</title></rect>
+<rect x="403.48" y="440" width="99.37" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00030 · long · Normal · 1319.7–1934.0s</title></rect>
+<rect x="502.85" y="440" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 1934.0–2038.6s</title></rect>
+<rect x="519.85" y="440" width="36.25" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00034 · medium · Normal · 2039.1–2263.2s</title></rect>
+<rect x="556.11" y="440" width="16.93" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 2263.2–2367.8s</title></rect>
+<rect x="573.11" y="440" width="104.22" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00055 · long · Normal · 2368.3–3012.6s</title></rect>
+<rect x="677.33" y="440" width="17.15" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 3012.6–3118.6s</title></rect>
+<rect x="694.56" y="440" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00059 · medium · Normal · 3119.1–3341.5s</title></rect>
+<rect x="730.54" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 3341.5–3446.5s</title></rect>
+<rect x="747.60" y="440" width="102.28" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00074 · long · Normal · 3447.0–4079.3s</title></rect>
+<rect x="849.88" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4079.3–4184.2s</title></rect>
+<rect x="866.94" y="440" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00078 · medium · Normal · 4184.7–4404.9s</title></rect>
+<rect x="902.56" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4404.9–4509.9s</title></rect>
+<rect x="919.62" y="440" width="35.29" height="7" rx="1.5" fill="#59A14F" stroke="#111827" stroke-width="1.2"><title>request-00084 · medium · Normal · 4510.4–4728.5s</title></rect>
+<rect x="954.91" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4728.5–4833.5s</title></rect>
+<rect x="971.96" y="440" width="17.15" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00088 · short · Normal · 4834.0–4939.9s</title></rect>
+<rect x="989.11" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 4939.9–5044.9s</title></rect>
+<rect x="1006.17" y="440" width="16.66" height="7" rx="1.5" fill="#4E79A7" stroke="#111827" stroke-width="1.2"><title>request-00094 · short · Normal · 5045.4–5148.4s</title></rect>
+<rect x="1022.83" y="440" width="16.98" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00098 · long · Tail · 5148.4–5253.3s</title></rect>
+<rect x="1039.80" y="440" width="85.76" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 5253.3–5783.5s</title></rect>
+<rect x="1125.57" y="440" width="67.71" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 5783.5–6202.1s</title></rect>
+<rect x="1193.27" y="440" width="86.02" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 6202.1–6733.8s</title></rect>
+<rect x="1279.30" y="440" width="84.81" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 6733.8–7258.1s</title></rect>
+<text x="181" y="460" text-anchor="end" class="lane">B4</text>
+<rect x="190" y="451" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="198.81" y="452" width="100.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00004 · long · Normal · 54.5–677.2s</title></rect>
+<rect x="299.63" y="452" width="102.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00020 · long · Normal · 677.7–1310.1s</title></rect>
+<rect x="402.01" y="452" width="100.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00033 · long · Normal · 1310.6–1930.9s</title></rect>
+<rect x="502.43" y="452" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00048 · long · Normal · 1931.4–2564.5s</title></rect>
+<rect x="604.93" y="452" width="35.41" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00047 · medium · Normal · 2565.0–2783.9s</title></rect>
+<rect x="640.42" y="452" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00052 · medium · Normal · 2784.4–3006.4s</title></rect>
+<rect x="676.42" y="452" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00058 · medium · Normal · 3006.9–3229.4s</title></rect>
+<rect x="712.48" y="452" width="101.13" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00072 · long · Normal · 3229.9–3855.0s</title></rect>
+<rect x="813.69" y="452" width="106.17" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00086 · long · Normal · 3855.5–4511.8s</title></rect>
+<rect x="919.93" y="452" width="102.29" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00097 · long · Normal · 4512.3–5144.6s</title></rect>
+<text x="181" y="472" text-anchor="end" class="lane">B5</text>
+<rect x="190" y="463" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="206.00" y="464" width="102.21" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00005 · long · Normal · 98.9–730.8s</title></rect>
+<rect x="308.30" y="464" width="101.92" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00021 · long · Normal · 731.3–1361.4s</title></rect>
+<rect x="410.30" y="464" width="35.36" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00022 · medium · Normal · 1361.9–1580.5s</title></rect>
+<rect x="445.74" y="464" width="102.09" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00035 · long · Normal · 1581.0–2212.1s</title></rect>
+<rect x="547.92" y="464" width="100.88" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00054 · long · Normal · 2212.6–2836.2s</title></rect>
+<rect x="648.88" y="464" width="17.17" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00046 · short · Normal · 2836.7–2942.8s</title></rect>
+<rect x="666.12" y="464" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00064 · long · Normal · 2943.3–3576.5s</title></rect>
+<rect x="768.63" y="464" width="35.90" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00068 · medium · Normal · 3577.0–3798.9s</title></rect>
+<rect x="804.61" y="464" width="101.83" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00082 · long · Normal · 3799.4–4429.0s</title></rect>
+<rect x="906.53" y="464" width="101.25" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00096 · long · Normal · 4429.5–5055.4s</title></rect>
+<text x="181" y="484" text-anchor="end" class="lane">B6</text>
+<rect x="190" y="475" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="212.09" y="476" width="101.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00006 · long · Normal · 136.6–766.9s</title></rect>
+<rect x="314.14" y="476" width="101.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00024 · long · Normal · 767.4–1393.0s</title></rect>
+<rect x="415.42" y="476" width="16.70" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00019 · short · Normal · 1393.5–1496.7s</title></rect>
+<rect x="432.20" y="476" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00023 · medium · Normal · 1497.2–1716.6s</title></rect>
+<rect x="467.76" y="476" width="103.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00036 · long · Normal · 1717.1–2356.9s</title></rect>
+<rect x="571.34" y="476" width="101.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00057 · long · Normal · 2357.4–2984.8s</title></rect>
+<rect x="672.92" y="476" width="35.37" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00056 · medium · Normal · 2985.3–3204.0s</title></rect>
+<rect x="708.38" y="476" width="100.60" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00071 · long · Normal · 3204.5–3826.4s</title></rect>
+<rect x="809.05" y="476" width="102.65" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00083 · long · Normal · 3826.9–4461.4s</title></rect>
+<rect x="911.78" y="476" width="36.62" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00085 · medium · Normal · 4461.9–4688.3s</title></rect>
+<rect x="948.49" y="476" width="101.85" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00099 · long · Normal · 4688.8–5318.4s</title></rect>
+<text x="181" y="496" text-anchor="end" class="lane">B7</text>
+<rect x="190" y="487" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="224.59" y="488" width="101.80" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00008 · long · Normal · 213.9–843.2s</title></rect>
+<rect x="326.47" y="488" width="36.32" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00013 · medium · Normal · 843.7–1068.2s</title></rect>
+<rect x="362.87" y="488" width="16.89" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00009 · short · Normal · 1068.7–1173.1s</title></rect>
+<rect x="379.84" y="488" width="17.18" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00012 · short · Normal · 1173.6–1279.8s</title></rect>
+<rect x="397.11" y="488" width="102.47" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00032 · long · Normal · 1280.3–1913.7s</title></rect>
+<rect x="499.65" y="488" width="102.54" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00040 · long · Normal · 1914.2–2548.1s</title></rect>
+<rect x="602.28" y="488" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00045 · medium · Normal · 2548.6–2767.9s</title></rect>
+<rect x="637.84" y="488" width="35.86" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00051 · medium · Normal · 2768.4–2990.1s</title></rect>
+<rect x="673.77" y="488" width="102.33" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00065 · long · Normal · 2990.6–3623.2s</title></rect>
+<rect x="776.18" y="488" width="35.45" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00069 · medium · Normal · 3623.7–3842.8s</title></rect>
+<rect x="811.71" y="488" width="16.98" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00067 · short · Normal · 3843.3–3948.3s</title></rect>
+<rect x="828.77" y="488" width="35.47" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00073 · medium · Normal · 3948.8–4168.0s</title></rect>
+<rect x="864.32" y="488" width="35.20" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00081 · medium · Normal · 4168.5–4386.1s</title></rect>
+<rect x="899.60" y="488" width="102.90" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00093 · long · Normal · 4386.6–5022.7s</title></rect>
+<line x1="714.19" y1="402" x2="714.19" y2="500" stroke="#8a94a6" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text x="20" y="520" class="policy">Central Pull + β=0.85 + Tail Pack + Tail Gate</text>
+<text x="20" y="537" class="note">P95 2126.8s · makespan 8088.3s · 抢占 0 次</text>
+<text x="181" y="555" text-anchor="end" class="lane">B0</text>
+<rect x="190" y="546" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="190.08" y="547" width="103.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00000 · long · Normal · 0.5–639.1s</title></rect>
+<rect x="293.46" y="547" width="102.43" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00017 · long · Normal · 639.6–1272.8s</title></rect>
+<rect x="395.97" y="547" width="16.70" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00019 · short · Normal · 1273.3–1376.5s</title></rect>
+<rect x="412.75" y="547" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00023 · medium · Normal · 1377.0–1596.4s</title></rect>
+<rect x="448.31" y="547" width="103.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00036 · long · Normal · 1596.9–2236.7s</title></rect>
+<rect x="551.90" y="547" width="101.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00057 · long · Normal · 2237.2–2864.6s</title></rect>
+<rect x="653.47" y="547" width="101.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00062 · long · Normal · 2865.1–3494.1s</title></rect>
+<rect x="755.30" y="547" width="36.57" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00066 · medium · Normal · 3494.6–3720.6s</title></rect>
+<rect x="791.95" y="547" width="101.83" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00082 · long · Normal · 3721.1–4350.6s</title></rect>
+<rect x="893.86" y="547" width="36.62" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00085 · medium · Normal · 4351.1–4577.6s</title></rect>
+<rect x="930.57" y="547" width="17.36" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00089 · short · Normal · 4578.1–4685.4s</title></rect>
+<rect x="948.01" y="547" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00095 · medium · Normal · 4685.9–4907.9s</title></rect>
+<text x="181" y="567" text-anchor="end" class="lane">B1</text>
+<rect x="190" y="558" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.58" y="559" width="17.07" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00001 · short · Normal · 34.5–140.0s</title></rect>
+<rect x="224.10" y="559" width="16.93" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00007 · short · Normal · 210.8–315.5s</title></rect>
+<rect x="241.12" y="559" width="102.66" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00014 · long · Normal · 316.0–950.6s</title></rect>
+<rect x="343.86" y="559" width="102.87" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00028 · long · Normal · 951.1–1587.1s</title></rect>
+<rect x="446.81" y="559" width="102.09" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00035 · long · Normal · 1587.6–2218.7s</title></rect>
+<rect x="548.99" y="559" width="100.88" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00054 · long · Normal · 2219.2–2842.8s</title></rect>
+<rect x="649.95" y="559" width="99.77" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00061 · long · Normal · 2843.3–3460.0s</title></rect>
+<rect x="749.79" y="559" width="102.14" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00076 · long · Normal · 3460.5–4091.9s</title></rect>
+<rect x="852.01" y="559" width="100.38" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00087 · long · Normal · 4092.4–4713.0s</title></rect>
+<rect x="952.47" y="559" width="16.66" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00094 · short · Normal · 4713.5–4816.5s</title></rect>
+<text x="181" y="579" text-anchor="end" class="lane">B2</text>
+<rect x="190" y="570" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.72" y="571" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00002 · medium · Normal · 35.3–255.6s</title></rect>
+<rect x="231.43" y="571" width="101.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00011 · long · Normal · 256.1–882.5s</title></rect>
+<rect x="332.84" y="571" width="16.89" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00009 · short · Normal · 883.0–987.5s</title></rect>
+<rect x="349.82" y="571" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00016 · medium · Normal · 988.0–1207.5s</title></rect>
+<rect x="385.42" y="571" width="101.64" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00031 · long · Normal · 1208.0–1836.3s</title></rect>
+<rect x="487.14" y="571" width="102.54" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00040 · long · Normal · 1836.8–2470.7s</title></rect>
+<rect x="589.76" y="571" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00045 · medium · Normal · 2471.2–2690.6s</title></rect>
+<rect x="625.32" y="571" width="35.86" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00051 · medium · Normal · 2691.1–2912.7s</title></rect>
+<rect x="661.25" y="571" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00058 · medium · Normal · 2913.2–3135.6s</title></rect>
+<rect x="697.32" y="571" width="101.13" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00072 · long · Normal · 3136.1–3761.3s</title></rect>
+<rect x="798.52" y="571" width="102.65" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00083 · long · Normal · 3761.8–4396.3s</title></rect>
+<rect x="901.25" y="571" width="101.25" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00096 · long · Normal · 4396.8–5022.7s</title></rect>
+<text x="181" y="591" text-anchor="end" class="lane">B3</text>
+<rect x="190" y="582" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="197.45" y="583" width="36.01" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00003 · medium · Normal · 46.1–268.7s</title></rect>
+<rect x="233.55" y="583" width="35.55" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00010 · medium · Normal · 269.2–489.0s</title></rect>
+<rect x="269.18" y="583" width="100.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00015 · long · Normal · 489.5–1108.0s</title></rect>
+<rect x="369.31" y="583" width="100.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00029 · long · Normal · 1108.5–1727.8s</title></rect>
+<rect x="469.58" y="583" width="17.19" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00026 · short · Normal · 1728.3–1834.6s</title></rect>
+<rect x="486.85" y="583" width="101.51" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00039 · long · Normal · 1835.1–2462.6s</title></rect>
+<rect x="588.44" y="583" width="35.92" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00043 · medium · Normal · 2463.1–2685.1s</title></rect>
+<rect x="624.44" y="583" width="35.66" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00050 · medium · Normal · 2685.6–2906.1s</title></rect>
+<rect x="660.19" y="583" width="35.37" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00056 · medium · Normal · 2906.6–3125.3s</title></rect>
+<rect x="695.64" y="583" width="100.60" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00071 · long · Normal · 3125.8–3747.7s</title></rect>
+<rect x="796.32" y="583" width="16.98" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00067 · short · Normal · 3748.2–3853.2s</title></rect>
+<rect x="813.39" y="583" width="35.42" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00075 · medium · Normal · 3853.7–4072.6s</title></rect>
+<rect x="848.89" y="583" width="35.20" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00081 · medium · Normal · 4073.1–4290.7s</title></rect>
+<rect x="884.17" y="583" width="102.90" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00093 · long · Normal · 4291.2–4927.3s</title></rect>
+<rect x="987.07" y="583" width="101.85" height="7" rx="1.5" fill="#B23A48" stroke="#111827" stroke-width="1.2"><title>request-00098 · long · Tail · 4927.3–5557.0s</title></rect>
+<rect x="1088.92" y="583" width="102.92" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 5557.0–6193.2s</title></rect>
+<rect x="1191.84" y="583" width="101.56" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 6193.2–6821.0s</title></rect>
+<rect x="1293.40" y="583" width="103.23" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 6821.0–7459.1s</title></rect>
+<rect x="1396.63" y="583" width="101.78" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 7459.1–8088.3s</title></rect>
+<text x="181" y="603" text-anchor="end" class="lane">B4</text>
+<rect x="190" y="594" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="198.81" y="595" width="100.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00004 · long · Normal · 54.5–677.2s</title></rect>
+<rect x="299.63" y="595" width="102.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00020 · long · Normal · 677.7–1310.1s</title></rect>
+<rect x="402.01" y="595" width="35.36" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00022 · medium · Normal · 1310.6–1529.2s</title></rect>
+<rect x="437.46" y="595" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00025 · medium · Normal · 1529.7–1749.3s</title></rect>
+<rect x="473.06" y="595" width="17.04" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00027 · short · Normal · 1749.8–1855.2s</title></rect>
+<rect x="490.19" y="595" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00048 · long · Normal · 1855.7–2488.9s</title></rect>
+<rect x="592.69" y="595" width="35.41" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00047 · medium · Normal · 2489.4–2708.3s</title></rect>
+<rect x="628.18" y="595" width="16.85" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00044 · short · Normal · 2708.8–2812.9s</title></rect>
+<rect x="645.11" y="595" width="17.17" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00046 · short · Normal · 2813.4–2919.6s</title></rect>
+<rect x="662.36" y="595" width="102.33" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00065 · long · Normal · 2920.1–3552.6s</title></rect>
+<rect x="764.77" y="595" width="35.45" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00069 · medium · Normal · 3553.1–3772.2s</title></rect>
+<rect x="800.30" y="595" width="35.47" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00073 · medium · Normal · 3772.7–3992.0s</title></rect>
+<rect x="835.84" y="595" width="35.39" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00079 · medium · Normal · 3992.5–4211.2s</title></rect>
+<rect x="871.31" y="595" width="35.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00084 · medium · Normal · 4211.7–4429.9s</title></rect>
+<rect x="906.68" y="595" width="102.29" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00097 · long · Normal · 4430.4–5062.7s</title></rect>
+<text x="181" y="615" text-anchor="end" class="lane">B5</text>
+<rect x="190" y="606" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="206.00" y="607" width="102.21" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00005 · long · Normal · 98.9–730.8s</title></rect>
+<rect x="308.30" y="607" width="101.92" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00021 · long · Normal · 731.3–1361.4s</title></rect>
+<rect x="410.30" y="607" width="102.47" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00032 · long · Normal · 1361.9–1995.3s</title></rect>
+<rect x="512.85" y="607" width="36.25" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00034 · medium · Normal · 1995.8–2219.9s</title></rect>
+<rect x="549.18" y="607" width="104.22" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00055 · long · Normal · 2220.4–2864.6s</title></rect>
+<rect x="653.48" y="607" width="102.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00063 · long · Normal · 2865.1–3496.0s</title></rect>
+<rect x="755.61" y="607" width="35.90" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00068 · medium · Normal · 3496.5–3718.5s</title></rect>
+<rect x="791.60" y="607" width="36.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00070 · medium · Normal · 3719.0–3943.3s</title></rect>
+<rect x="827.97" y="607" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00078 · medium · Normal · 3943.8–4164.0s</title></rect>
+<rect x="863.68" y="607" width="99.68" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00092 · long · Normal · 4164.5–4780.8s</title></rect>
+<text x="181" y="627" text-anchor="end" class="lane">B6</text>
+<rect x="190" y="618" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="212.09" y="619" width="101.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00006 · long · Normal · 136.6–766.9s</title></rect>
+<rect x="314.14" y="619" width="101.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00024 · long · Normal · 767.4–1393.0s</title></rect>
+<rect x="415.42" y="619" width="100.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00033 · long · Normal · 1393.5–2013.7s</title></rect>
+<rect x="515.83" y="619" width="102.01" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00053 · long · Normal · 2014.2–2644.9s</title></rect>
+<rect x="617.93" y="619" width="35.75" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00049 · medium · Normal · 2645.4–2866.4s</title></rect>
+<rect x="653.76" y="619" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00064 · long · Normal · 2866.9–3500.1s</title></rect>
+<rect x="756.27" y="619" width="100.58" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00077 · long · Normal · 3500.6–4122.3s</title></rect>
+<rect x="856.92" y="619" width="98.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00091 · long · Normal · 4122.8–4734.6s</title></rect>
+<text x="181" y="639" text-anchor="end" class="lane">B7</text>
+<rect x="190" y="630" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="224.59" y="631" width="101.80" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00008 · long · Normal · 213.9–843.2s</title></rect>
+<rect x="326.47" y="631" width="36.32" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00013 · medium · Normal · 843.7–1068.2s</title></rect>
+<rect x="362.87" y="631" width="17.18" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00012 · short · Normal · 1068.7–1174.9s</title></rect>
+<rect x="380.13" y="631" width="99.37" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00030 · long · Normal · 1175.4–1789.7s</title></rect>
+<rect x="479.59" y="631" width="103.44" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00037 · long · Normal · 1790.2–2429.6s</title></rect>
+<rect x="583.10" y="631" width="35.78" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00042 · medium · Normal · 2430.1–2651.3s</title></rect>
+<rect x="618.96" y="631" width="17.10" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00041 · short · Normal · 2651.8–2757.5s</title></rect>
+<rect x="636.14" y="631" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00052 · medium · Normal · 2758.0–2979.9s</title></rect>
+<rect x="672.13" y="631" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00059 · medium · Normal · 2980.4–3202.9s</title></rect>
+<rect x="708.19" y="631" width="102.28" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00074 · long · Normal · 3203.4–3835.7s</title></rect>
+<rect x="810.56" y="631" width="106.17" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00086 · long · Normal · 3836.2–4492.5s</title></rect>
+<rect x="916.80" y="631" width="17.15" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00088 · short · Normal · 4493.0–4599.0s</title></rect>
+<rect x="934.03" y="631" width="17.02" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00090 · short · Normal · 4599.5–4704.7s</title></rect>
+<rect x="951.13" y="631" width="101.85" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00099 · long · Normal · 4705.2–5334.8s</title></rect>
+<line x1="714.19" y1="545" x2="714.19" y2="643" stroke="#8a94a6" stroke-width="0.8" stroke-dasharray="3 3"/>
+<text x="20" y="663" class="policy">Release-Calendar Beam + Tail Pack + Tail Gate</text>
+<text x="20" y="680" class="note">P95 2062.5s · makespan 7982.0s · 抢占 0 次</text>
+<text x="181" y="698" text-anchor="end" class="lane">B0</text>
+<rect x="190" y="689" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="190.08" y="690" width="103.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00000 · long · Normal · 0.5–639.1s</title></rect>
+<rect x="293.46" y="690" width="102.43" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00017 · long · Normal · 639.6–1272.8s</title></rect>
+<rect x="395.97" y="690" width="99.37" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00030 · long · Normal · 1273.3–1887.6s</title></rect>
+<rect x="495.42" y="690" width="102.54" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00040 · long · Normal · 1888.1–2521.9s</title></rect>
+<rect x="598.04" y="690" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00045 · medium · Normal · 2522.4–2741.8s</title></rect>
+<rect x="633.60" y="690" width="16.85" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00044 · short · Normal · 2742.3–2846.4s</title></rect>
+<rect x="650.53" y="690" width="101.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00062 · long · Normal · 2846.9–3475.9s</title></rect>
+<rect x="752.36" y="690" width="36.57" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00066 · medium · Normal · 3476.4–3702.4s</title></rect>
+<rect x="789.01" y="690" width="100.58" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00077 · long · Normal · 3702.9–4324.7s</title></rect>
+<rect x="889.66" y="690" width="101.25" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00096 · long · Normal · 4325.2–4951.1s</title></rect>
+<text x="181" y="710" text-anchor="end" class="lane">B1</text>
+<rect x="190" y="701" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.58" y="702" width="17.07" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00001 · short · Normal · 34.5–140.0s</title></rect>
+<rect x="224.10" y="702" width="16.93" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00007 · short · Normal · 210.8–315.5s</title></rect>
+<rect x="241.12" y="702" width="102.66" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00014 · long · Normal · 316.0–950.6s</title></rect>
+<rect x="343.86" y="702" width="16.89" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00009 · short · Normal · 951.1–1055.6s</title></rect>
+<rect x="360.83" y="702" width="102.87" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00028 · long · Normal · 1056.1–1692.0s</title></rect>
+<rect x="463.79" y="702" width="101.51" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00039 · long · Normal · 1692.5–2320.0s</title></rect>
+<rect x="565.38" y="702" width="35.78" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00042 · medium · Normal · 2320.5–2541.7s</title></rect>
+<rect x="601.24" y="702" width="35.41" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00047 · medium · Normal · 2542.2–2761.1s</title></rect>
+<rect x="636.73" y="702" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00052 · medium · Normal · 2761.6–2983.6s</title></rect>
+<rect x="672.72" y="702" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00059 · medium · Normal · 2984.1–3206.5s</title></rect>
+<rect x="708.78" y="702" width="102.28" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00074 · long · Normal · 3207.0–3839.3s</title></rect>
+<rect x="811.14" y="702" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00078 · medium · Normal · 3839.8–4060.0s</title></rect>
+<rect x="846.85" y="702" width="36.62" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00085 · medium · Normal · 4060.5–4286.9s</title></rect>
+<rect x="883.56" y="702" width="102.90" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00093 · long · Normal · 4287.4–4923.5s</title></rect>
+<text x="181" y="722" text-anchor="end" class="lane">B2</text>
+<rect x="190" y="713" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="195.72" y="714" width="35.63" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00002 · medium · Normal · 35.3–255.6s</title></rect>
+<rect x="231.43" y="714" width="101.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00011 · long · Normal · 256.1–882.5s</title></rect>
+<rect x="332.84" y="714" width="101.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00024 · long · Normal · 883.0–1508.6s</title></rect>
+<rect x="434.12" y="714" width="17.19" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00026 · short · Normal · 1509.1–1615.4s</title></rect>
+<rect x="451.39" y="714" width="102.09" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00035 · long · Normal · 1615.9–2247.0s</title></rect>
+<rect x="553.56" y="714" width="104.22" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00055 · long · Normal · 2247.5–2891.7s</title></rect>
+<rect x="657.86" y="714" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00064 · long · Normal · 2892.2–3525.4s</title></rect>
+<rect x="760.36" y="714" width="35.45" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00069 · medium · Normal · 3525.9–3745.0s</title></rect>
+<rect x="795.89" y="714" width="101.83" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00082 · long · Normal · 3745.5–4375.0s</title></rect>
+<rect x="897.81" y="714" width="102.29" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00097 · long · Normal · 4375.5–5007.9s</title></rect>
+<text x="181" y="734" text-anchor="end" class="lane">B3</text>
+<rect x="190" y="725" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="197.45" y="726" width="36.01" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00003 · medium · Normal · 46.1–268.7s</title></rect>
+<rect x="233.55" y="726" width="35.55" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00010 · medium · Normal · 269.2–489.0s</title></rect>
+<rect x="269.18" y="726" width="100.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00015 · long · Normal · 489.5–1108.0s</title></rect>
+<rect x="369.31" y="726" width="35.48" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00023 · medium · Normal · 1108.5–1327.8s</title></rect>
+<rect x="404.87" y="726" width="102.47" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00032 · long · Normal · 1328.3–1961.7s</title></rect>
+<rect x="507.42" y="726" width="102.42" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00048 · long · Normal · 1962.2–2595.4s</title></rect>
+<rect x="609.92" y="726" width="17.10" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00041 · short · Normal · 2595.9–2701.5s</title></rect>
+<rect x="627.10" y="726" width="35.66" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00050 · medium · Normal · 2702.0–2922.5s</title></rect>
+<rect x="662.84" y="726" width="35.98" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00058 · medium · Normal · 2923.0–3145.4s</title></rect>
+<rect x="698.90" y="726" width="101.13" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00072 · long · Normal · 3145.9–3771.1s</title></rect>
+<rect x="800.11" y="726" width="35.42" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00075 · medium · Normal · 3771.6–3990.5s</title></rect>
+<rect x="835.61" y="726" width="35.20" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00081 · medium · Normal · 3991.0–4208.7s</title></rect>
+<rect x="870.90" y="726" width="98.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00091 · long · Normal · 4209.2–4821.0s</title></rect>
+<rect x="969.87" y="726" width="101.85" height="7" rx="1.5" fill="#B23A48" stroke="#111827" stroke-width="1.2"><title>request-00098 · long · Tail · 4821.0–5450.6s</title></rect>
+<rect x="1071.72" y="726" width="102.92" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00080 · long · Tail · 5450.6–6086.8s</title></rect>
+<rect x="1174.64" y="726" width="101.56" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00060 · long · Tail · 6086.8–6714.7s</title></rect>
+<rect x="1276.20" y="726" width="103.23" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00038 · long · Tail · 6714.7–7352.8s</title></rect>
+<rect x="1379.42" y="726" width="101.78" height="7" rx="1.5" fill="#B23A48" stroke="#B23A48" stroke-width="0.2"><title>request-00018 · long · Tail · 7352.8–7982.0s</title></rect>
+<text x="181" y="746" text-anchor="end" class="lane">B4</text>
+<rect x="190" y="737" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="198.81" y="738" width="100.74" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00004 · long · Normal · 54.5–677.2s</title></rect>
+<rect x="299.63" y="738" width="102.30" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00020 · long · Normal · 677.7–1310.1s</title></rect>
+<rect x="402.01" y="738" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00025 · medium · Normal · 1310.6–1530.2s</title></rect>
+<rect x="437.62" y="738" width="17.04" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00027 · short · Normal · 1530.7–1636.1s</title></rect>
+<rect x="454.74" y="738" width="103.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00036 · long · Normal · 1636.6–2276.4s</title></rect>
+<rect x="558.33" y="738" width="101.50" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00057 · long · Normal · 2276.9–2904.4s</title></rect>
+<rect x="659.90" y="738" width="35.37" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00056 · medium · Normal · 2904.9–3123.5s</title></rect>
+<rect x="695.36" y="738" width="100.60" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00071 · long · Normal · 3124.0–3745.9s</title></rect>
+<rect x="796.04" y="738" width="35.47" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00073 · medium · Normal · 3746.4–3965.7s</title></rect>
+<rect x="831.58" y="738" width="35.39" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00079 · medium · Normal · 3966.2–4184.9s</title></rect>
+<rect x="867.05" y="738" width="100.38" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00087 · long · Normal · 4185.4–4806.0s</title></rect>
+<rect x="967.52" y="738" width="16.66" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00094 · short · Normal · 4806.5–4909.5s</title></rect>
+<text x="181" y="758" text-anchor="end" class="lane">B5</text>
+<rect x="190" y="749" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="206.00" y="750" width="102.21" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00005 · long · Normal · 98.9–730.8s</title></rect>
+<rect x="308.30" y="750" width="36.32" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00013 · medium · Normal · 731.3–955.8s</title></rect>
+<rect x="344.70" y="750" width="17.18" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00012 · short · Normal · 956.3–1062.5s</title></rect>
+<rect x="361.96" y="750" width="100.19" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00029 · long · Normal · 1063.0–1682.4s</title></rect>
+<rect x="462.23" y="750" width="103.44" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00037 · long · Normal · 1682.9–2322.3s</title></rect>
+<rect x="565.75" y="750" width="35.92" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00043 · medium · Normal · 2322.8–2544.9s</title></rect>
+<rect x="601.75" y="750" width="35.75" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00049 · medium · Normal · 2545.4–2766.4s</title></rect>
+<rect x="637.58" y="750" width="17.17" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00046 · short · Normal · 2766.9–2873.0s</title></rect>
+<rect x="654.83" y="750" width="102.05" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00063 · long · Normal · 2873.5–3504.4s</title></rect>
+<rect x="756.97" y="750" width="35.90" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00068 · medium · Normal · 3504.9–3726.8s</title></rect>
+<rect x="792.95" y="750" width="16.98" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00067 · short · Normal · 3727.3–3832.3s</title></rect>
+<rect x="810.02" y="750" width="106.17" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00086 · long · Normal · 3832.8–4489.1s</title></rect>
+<rect x="916.26" y="750" width="17.36" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00089 · short · Normal · 4489.6–4596.9s</title></rect>
+<rect x="933.71" y="750" width="35.91" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00095 · medium · Normal · 4597.4–4819.4s</title></rect>
+<text x="181" y="770" text-anchor="end" class="lane">B6</text>
+<rect x="190" y="761" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="212.09" y="762" width="101.97" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00006 · long · Normal · 136.6–766.9s</title></rect>
+<rect x="314.14" y="762" width="35.52" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00016 · medium · Normal · 767.4–987.0s</title></rect>
+<rect x="349.74" y="762" width="16.70" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00019 · short · Normal · 987.5–1090.8s</title></rect>
+<rect x="366.53" y="762" width="35.36" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00022 · medium · Normal · 1091.3–1309.9s</title></rect>
+<rect x="401.97" y="762" width="101.64" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00031 · long · Normal · 1310.4–1938.7s</title></rect>
+<rect x="503.69" y="762" width="36.25" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00034 · medium · Normal · 1939.2–2163.3s</title></rect>
+<rect x="540.02" y="762" width="100.88" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00054 · long · Normal · 2163.8–2787.4s</title></rect>
+<rect x="640.98" y="762" width="99.77" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00061 · long · Normal · 2787.9–3404.6s</title></rect>
+<rect x="740.83" y="762" width="102.14" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00076 · long · Normal · 3405.1–4036.5s</title></rect>
+<rect x="843.04" y="762" width="35.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00084 · medium · Normal · 4037.0–4255.1s</title></rect>
+<rect x="878.41" y="762" width="99.68" height="7" rx="1.5" fill="#F28E2B" stroke="#111827" stroke-width="1.2"><title>request-00092 · long · Normal · 4255.6–4871.9s</title></rect>
+<text x="181" y="782" text-anchor="end" class="lane">B7</text>
+<rect x="190" y="773" width="1375" height="9" rx="2" fill="#f1f3f7"/>
+<rect x="224.59" y="774" width="101.80" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00008 · long · Normal · 213.9–843.2s</title></rect>
+<rect x="326.47" y="774" width="101.92" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00021 · long · Normal · 843.7–1473.7s</title></rect>
+<rect x="428.48" y="774" width="100.34" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00033 · long · Normal · 1474.2–2094.5s</title></rect>
+<rect x="528.89" y="774" width="102.01" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00053 · long · Normal · 2095.0–2725.6s</title></rect>
+<rect x="630.99" y="774" width="35.86" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00051 · medium · Normal · 2726.1–2947.8s</title></rect>
+<rect x="666.92" y="774" width="102.33" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00065 · long · Normal · 2948.3–3580.8s</title></rect>
+<rect x="769.33" y="774" width="36.29" height="7" rx="1.5" fill="#59A14F" stroke="#59A14F" stroke-width="0.2"><title>request-00070 · medium · Normal · 3581.3–3805.7s</title></rect>
+<rect x="805.71" y="774" width="102.65" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00083 · long · Normal · 3806.2–4440.7s</title></rect>
+<rect x="908.43" y="774" width="17.15" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00088 · short · Normal · 4441.2–4547.2s</title></rect>
+<rect x="925.66" y="774" width="17.02" height="7" rx="1.5" fill="#4E79A7" stroke="#4E79A7" stroke-width="0.2"><title>request-00090 · short · Normal · 4547.7–4652.9s</title></rect>
+<rect x="942.76" y="774" width="101.85" height="7" rx="1.5" fill="#F28E2B" stroke="#F28E2B" stroke-width="0.2"><title>request-00099 · long · Normal · 4653.4–5283.0s</title></rect>
+<line x1="714.19" y1="688" x2="714.19" y2="786" stroke="#8a94a6" stroke-width="0.8" stroke-dasharray="3 3"/>
+<line x1="190.00" y1="70" x2="190.00" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="190.00" y="814" text-anchor="middle" class="axis">0s</text>
+<line x1="351.76" y1="70" x2="351.76" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="351.76" y="814" text-anchor="middle" class="axis">1000s</text>
+<line x1="513.53" y1="70" x2="513.53" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="513.53" y="814" text-anchor="middle" class="axis">2000s</text>
+<line x1="675.29" y1="70" x2="675.29" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="675.29" y="814" text-anchor="middle" class="axis">3000s</text>
+<line x1="837.06" y1="70" x2="837.06" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="837.06" y="814" text-anchor="middle" class="axis">4000s</text>
+<line x1="998.82" y1="70" x2="998.82" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="998.82" y="814" text-anchor="middle" class="axis">5000s</text>
+<line x1="1160.59" y1="70" x2="1160.59" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="1160.59" y="814" text-anchor="middle" class="axis">6000s</text>
+<line x1="1322.35" y1="70" x2="1322.35" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="1322.35" y="814" text-anchor="middle" class="axis">7000s</text>
+<line x1="1484.12" y1="70" x2="1484.12" y2="797" stroke="#d8dde7" stroke-width="0.7"/>
+<text x="1484.12" y="814" text-anchor="middle" class="axis">8000s</text>
+<rect x="190" y="832" width="14" height="9" rx="2" fill="#4E79A7"/>
+<text x="210" y="840" class="small">Normal short</text>
+<rect x="365" y="832" width="14" height="9" rx="2" fill="#59A14F"/>
+<text x="385" y="840" class="small">Normal medium</text>
+<rect x="540" y="832" width="14" height="9" rx="2" fill="#F28E2B"/>
+<text x="560" y="840" class="small">Normal long</text>
+<rect x="715" y="832" width="14" height="9" rx="2" fill="#B23A48"/>
+<text x="735" y="840" class="small">Tail</text>
+<rect x="905" y="832" width="14" height="9" rx="2" fill="#111827"/>
+<text x="925" y="840" class="small">黑框：P95 rank 95/96 请求</text>
+</svg>

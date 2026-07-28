@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="470" viewBox="0 0 1600 470" role="img" aria-label="五种 Wan2.2 调度策略的 P95 边界请求">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#172033}
+.title{font-size:20px;font-weight:700}.subtitle{font-size:13px;fill:#4d586b}
+.policy{font-size:14px;font-weight:700}.lane{font-size:10px;fill:#657086}
+.axis{font-size:10px;fill:#657086}.small{font-size:10px}.note{font-size:11px;fill:#4d586b}
+</style>
+<rect width="1600" height="470" fill="#ffffff"/>
+<text x="32" y="32" class="title">P95 边界：rank 95 / rank 96 是谁</text>
+<text x="32" y="55" class="subtitle">圆点是两个边界请求，菱形是最终 P95；位置越靠左越好。</text>
+<line x1="430.00" y1="70" x2="430.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="430.00" y="61" text-anchor="middle" class="axis">0s</text>
+<line x1="615.00" y1="70" x2="615.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="615.00" y="61" text-anchor="middle" class="axis">500s</text>
+<line x1="800.00" y1="70" x2="800.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="800.00" y="61" text-anchor="middle" class="axis">1000s</text>
+<line x1="985.00" y1="70" x2="985.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="985.00" y="61" text-anchor="middle" class="axis">1500s</text>
+<line x1="1170.00" y1="70" x2="1170.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="1170.00" y="61" text-anchor="middle" class="axis">2000s</text>
+<line x1="1355.00" y1="70" x2="1355.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="1355.00" y="61" text-anchor="middle" class="axis">2500s</text>
+<line x1="1540.00" y1="70" x2="1540.00" y2="410" stroke="#e0e4eb" stroke-width="0.8"/>
+<text x="1540.00" y="61" text-anchor="middle" class="axis">3000s</text>
+<text x="24" y="95" class="policy">原策略 8×USP1</text>
+<text x="24" y="113" class="note">r95 083 long/normal · r96 096 long/normal</text>
+<line x1="1283.16" y1="90" x2="1355.88" y2="90" stroke="#4E79A7" stroke-width="3" opacity="0.65"/>
+<circle cx="1283.16" cy="90" r="7" fill="#4E79A7"><title>rank 95: 2305.8s</title></circle>
+<circle cx="1355.88" cy="90" r="7" fill="#ffffff" stroke="#4E79A7" stroke-width="3"><title>rank 96: 2502.4s</title></circle>
+<polygon points="1286.79,80 1296.79,90.00 1286.79,100 1276.79,90.00" fill="#111827"><title>P95: 2315.7s</title></polygon>
+<text x="1300.79" y="77" class="small">P95 2315.7s</text>
+<text x="24" y="161" class="policy">Central Pull + β=0.5 + Tail Spread</text>
+<text x="24" y="179" class="note">r95 093 long/normal · r96 087 long/normal</text>
+<line x1="1337.47" y1="156" x2="1341.53" y2="156" stroke="#76B7B2" stroke-width="3" opacity="0.65"/>
+<circle cx="1337.47" cy="156" r="7" fill="#76B7B2"><title>rank 95: 2452.6s</title></circle>
+<circle cx="1341.53" cy="156" r="7" fill="#ffffff" stroke="#76B7B2" stroke-width="3"><title>rank 96: 2463.6s</title></circle>
+<polygon points="1337.67,146 1347.67,156.00 1337.67,166 1327.67,156.00" fill="#111827"><title>P95: 2453.2s</title></polygon>
+<text x="1351.67" y="143" class="small">P95 2453.2s</text>
+<text x="24" y="227" class="policy">Central Pull + β=0.95 + Tail Pack</text>
+<text x="24" y="245" class="note">r95 084 medium/normal · r96 094 short/normal</text>
+<line x1="1242.52" y1="222" x2="1264.14" y2="222" stroke="#F28E2B" stroke-width="3" opacity="0.65"/>
+<circle cx="1242.52" cy="222" r="7" fill="#F28E2B"><title>rank 95: 2196.0s</title></circle>
+<circle cx="1264.14" cy="222" r="7" fill="#ffffff" stroke="#F28E2B" stroke-width="3"><title>rank 96: 2254.4s</title></circle>
+<polygon points="1243.60,212 1253.60,222.00 1243.60,232 1233.60,222.00" fill="#111827"><title>P95: 2198.9s</title></polygon>
+<text x="1257.60" y="209" class="small">P95 2198.9s</text>
+<text x="24" y="293" class="policy">Central Pull + β=0.85 + Tail Pack + Tail Gate</text>
+<text x="24" y="311" class="note">r95 096 long/normal · r96 098 long/sacrificial</text>
+<line x1="1210.91" y1="288" x2="1330.81" y2="288" stroke="#E15759" stroke-width="3" opacity="0.65"/>
+<circle cx="1210.91" cy="288" r="7" fill="#E15759"><title>rank 95: 2110.6s</title></circle>
+<circle cx="1330.81" cy="288" r="7" fill="#ffffff" stroke="#E15759" stroke-width="3"><title>rank 96: 2434.6s</title></circle>
+<polygon points="1216.91,278 1226.91,288.00 1216.91,298 1206.91,288.00" fill="#111827"><title>P95: 2126.8s</title></polygon>
+<text x="1230.91" y="275" class="small">P95 2126.8s</text>
+<text x="24" y="359" class="policy">Release-Calendar Beam + Tail Pack + Tail Gate</text>
+<text x="24" y="377" class="note">r95 092 long/normal · r96 098 long/sacrificial</text>
+<line x1="1187.96" y1="354" x2="1291.47" y2="354" stroke="#7B61A8" stroke-width="3" opacity="0.65"/>
+<circle cx="1187.96" cy="354" r="7" fill="#7B61A8"><title>rank 95: 2048.6s</title></circle>
+<circle cx="1291.47" cy="354" r="7" fill="#ffffff" stroke="#7B61A8" stroke-width="3"><title>rank 96: 2328.3s</title></circle>
+<polygon points="1193.14,344 1203.14,354.00 1193.14,364 1183.14,354.00" fill="#111827"><title>P95: 2062.5s</title></polygon>
+<text x="1207.14" y="341" class="small">P95 2062.5s</text>
+</svg>

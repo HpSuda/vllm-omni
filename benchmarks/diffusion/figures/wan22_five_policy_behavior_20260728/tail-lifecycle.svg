@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="807" viewBox="0 0 1600 807" role="img" aria-label="五种 Wan2.2 调度策略的 Tail 生命周期">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#172033}
+.title{font-size:20px;font-weight:700}.subtitle{font-size:13px;fill:#4d586b}
+.policy{font-size:14px;font-weight:700}.lane{font-size:10px;fill:#657086}
+.axis{font-size:10px;fill:#657086}.small{font-size:10px}.note{font-size:11px;fill:#4d586b}
+</style>
+<rect width="1600" height="807" fill="#ffffff"/>
+<text x="32" y="32" class="title">五个 Tail 的等待、运行与抢占</text>
+<text x="32" y="55" class="subtitle">浅色：到达后等待；深红：真实运行；运行段之间的空白表示被抢占或暂停。</text>
+<text x="20" y="94" class="policy">原策略 8×USP1</text>
+<text x="195" y="116" text-anchor="end" class="lane">018 · B4</text>
+<rect x="264.49" y="109" width="653.72" height="7" rx="2" fill="#F3C6CB"><title>等待 4085.8s</title></rect>
+<line x1="918.21" y1="112.5" x2="1018.88" y2="112.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="918.21" y="107" width="100.67" height="11" rx="2" fill="#B23A48"><title>运行 4457.6–5086.7s</title></rect>
+<circle cx="1018.88" cy="112.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="134" text-anchor="end" class="lane">038 · B3</text>
+<rect x="387.17" y="127" width="572.59" height="7" rx="2" fill="#F3C6CB"><title>等待 3578.7s</title></rect>
+<line x1="959.75" y1="130.5" x2="1061.85" y2="130.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="959.75" y="125" width="102.10" height="11" rx="2" fill="#B23A48"><title>运行 4717.2–5355.3s</title></rect>
+<circle cx="1061.85" cy="130.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="152" text-anchor="end" class="lane">060 · B2</text>
+<rect x="466.37" y="145" width="522.09" height="7" rx="2" fill="#F3C6CB"><title>等待 3263.1s</title></rect>
+<line x1="988.46" y1="148.5" x2="1088.91" y2="148.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="988.46" y="143" width="100.46" height="11" rx="2" fill="#B23A48"><title>运行 4896.6–5524.4s</title></rect>
+<circle cx="1088.91" cy="148.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="170" text-anchor="end" class="lane">080 · B1</text>
+<rect x="587.33" y="163" width="483.99" height="7" rx="2" fill="#F3C6CB"><title>等待 3025.0s</title></rect>
+<line x1="1071.32" y1="166.5" x2="1173.12" y2="166.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1071.32" y="161" width="101.79" height="11" rx="2" fill="#B23A48"><title>运行 5414.5–6050.7s</title></rect>
+<circle cx="1173.12" cy="166.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="188" text-anchor="end" class="lane">098 · B7</text>
+<rect x="704.57" y="181" width="262.40" height="7" rx="2" fill="#F3C6CB"><title>等待 1640.0s</title></rect>
+<line x1="966.97" y1="184.5" x2="1067.71" y2="184.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="966.97" y="179" width="100.74" height="11" rx="2" fill="#B23A48"><title>运行 4762.3–5391.9s</title></rect>
+<circle cx="1067.71" cy="184.5" r="2.8" fill="#5A1620"/>
+<text x="1565" y="97" text-anchor="end" class="note">Tail E2E 2270–4715s · 抢占 0 次</text>
+<text x="20" y="226" class="policy">Central Pull + β=0.5 + Tail Spread</text>
+<text x="195" y="248" text-anchor="end" class="lane">018 · B3</text>
+<rect x="264.49" y="241" width="18.75" height="7" rx="2" fill="#F3C6CB"><title>等待 117.2s</title></rect>
+<line x1="283.24" y1="244.5" x2="669.65" y2="244.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="283.24" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 489.0–593.8s</title></rect>
+<rect x="399.05" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 1212.8–1317.7s</title></rect>
+<rect x="451.00" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 1537.5–1642.4s</title></rect>
+<rect x="567.10" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 2263.1–2368.0s</title></rect>
+<rect x="619.35" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 2589.7–2694.5s</title></rect>
+<rect x="652.87" y="239" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 2799.2–2904.1s</title></rect>
+<circle cx="669.65" cy="244.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="266" text-anchor="end" class="lane">038 · B2</text>
+<rect x="387.17" y="259" width="27.77" height="7" rx="2" fill="#F3C6CB"><title>等待 173.6s</title></rect>
+<line x1="414.94" y1="262.5" x2="759.51" y2="262.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="414.94" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 1312.1–1418.5s</title></rect>
+<rect x="467.17" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 1638.6–1744.9s</title></rect>
+<rect x="585.25" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 2376.5–2482.9s</title></rect>
+<rect x="637.43" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 2702.7–2809.1s</title></rect>
+<rect x="689.81" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 3030.0–3136.4s</title></rect>
+<rect x="742.49" y="257" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 3359.3–3465.7s</title></rect>
+<circle cx="759.51" cy="262.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="284" text-anchor="end" class="lane">060 · B1</text>
+<rect x="466.37" y="277" width="7.99" height="7" rx="2" fill="#F3C6CB"><title>等待 49.9s</title></rect>
+<line x1="474.35" y1="280.5" x2="948.75" y2="280.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="474.35" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 1683.5–1788.1s</title></rect>
+<rect x="593.55" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 2428.4–2533.1s</title></rect>
+<rect x="710.15" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 3157.2–3261.8s</title></rect>
+<rect x="828.28" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 3895.5–4000.1s</title></rect>
+<rect x="880.18" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 4219.9–4324.5s</title></rect>
+<rect x="932.01" y="275" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 4543.8–4648.4s</title></rect>
+<circle cx="948.75" cy="280.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="302" text-anchor="end" class="lane">080 · B5</text>
+<rect x="587.33" y="295" width="27.36" height="7" rx="2" fill="#F3C6CB"><title>等待 171.0s</title></rect>
+<line x1="614.70" y1="298.5" x2="941.08" y2="298.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="614.70" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 2560.6–2666.6s</title></rect>
+<rect x="648.65" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 2772.8–2878.9s</title></rect>
+<rect x="701.22" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 3101.3–3207.4s</title></rect>
+<rect x="818.89" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 3836.8–3942.9s</title></rect>
+<rect x="871.84" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 4167.7–4273.8s</title></rect>
+<rect x="924.12" y="293" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 4494.5–4600.5s</title></rect>
+<circle cx="941.08" cy="298.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="320" text-anchor="end" class="lane">098 · B3</text>
+<rect x="704.57" y="313" width="0.80" height="7" rx="2" fill="#F3C6CB"><title>等待 0.9s</title></rect>
+<line x1="704.72" y1="316.5" x2="1107.89" y2="316.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="704.72" y="311" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 3123.2–3228.2s</title></rect>
+<rect x="822.53" y="311" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 3859.6–3964.5s</title></rect>
+<rect x="938.88" y="311" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 4586.7–4691.7s</title></rect>
+<rect x="1057.52" y="311" width="50.37" height="11" rx="2" fill="#B23A48"><title>运行 5328.3–5643.1s</title></rect>
+<circle cx="1107.89" cy="316.5" r="2.8" fill="#5A1620"/>
+<text x="1565" y="229" text-anchor="end" class="note">Tail E2E 2211–3015s · 抢占 23 次</text>
+<text x="20" y="358" class="policy">Central Pull + β=0.95 + Tail Pack</text>
+<text x="195" y="380" text-anchor="end" class="lane">018 · B3</text>
+<rect x="264.49" y="373" width="18.75" height="7" rx="2" fill="#F3C6CB"><title>等待 117.2s</title></rect>
+<line x1="283.24" y1="376.5" x2="1366.30" y2="376.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="283.24" y="371" width="16.78" height="11" rx="2" fill="#B23A48"><title>运行 489.0–593.8s</title></rect>
+<rect x="1282.41" y="371" width="83.89" height="11" rx="2" fill="#B23A48"><title>运行 6733.8–7258.1s</title></rect>
+<circle cx="1366.30" cy="376.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="398" text-anchor="end" class="lane">038 · B3</text>
+<rect x="387.17" y="391" width="11.88" height="7" rx="2" fill="#F3C6CB"><title>等待 74.3s</title></rect>
+<line x1="399.05" y1="394.5" x2="1282.41" y2="394.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="399.05" y="389" width="17.02" height="11" rx="2" fill="#B23A48"><title>运行 1212.8–1319.2s</title></rect>
+<rect x="1197.33" y="389" width="85.08" height="11" rx="2" fill="#B23A48"><title>运行 6202.1–6733.8s</title></rect>
+<circle cx="1282.41" cy="394.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="416" text-anchor="end" class="lane">060 · B3</text>
+<rect x="466.37" y="409" width="48.07" height="7" rx="2" fill="#F3C6CB"><title>等待 300.4s</title></rect>
+<line x1="514.43" y1="412.5" x2="1197.33" y2="412.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="514.43" y="407" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 1934.0–2038.6s</title></rect>
+<rect x="567.11" y="407" width="16.74" height="11" rx="2" fill="#B23A48"><title>运行 2263.2–2367.8s</title></rect>
+<rect x="1130.36" y="407" width="66.97" height="11" rx="2" fill="#B23A48"><title>运行 5783.5–6202.1s</title></rect>
+<circle cx="1197.33" cy="412.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="434" text-anchor="end" class="lane">080 · B3</text>
+<rect x="587.33" y="427" width="99.68" height="7" rx="2" fill="#F3C6CB"><title>等待 623.0s</title></rect>
+<line x1="687.01" y1="430.5" x2="1130.36" y2="430.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="687.01" y="425" width="16.97" height="11" rx="2" fill="#B23A48"><title>运行 3012.6–3118.6s</title></rect>
+<rect x="1045.53" y="425" width="84.83" height="11" rx="2" fill="#B23A48"><title>运行 5253.3–5783.5s</title></rect>
+<circle cx="1130.36" cy="430.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="452" text-anchor="end" class="lane">098 · B3</text>
+<rect x="704.57" y="445" width="35.07" height="7" rx="2" fill="#F3C6CB"><title>等待 219.2s</title></rect>
+<line x1="739.65" y1="448.5" x2="1045.53" y2="448.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="739.65" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 3341.5–3446.5s</title></rect>
+<rect x="857.68" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 4079.3–4184.2s</title></rect>
+<rect x="909.79" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 4404.9–4509.9s</title></rect>
+<rect x="961.56" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 4728.5–4833.5s</title></rect>
+<rect x="995.39" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 4939.9–5044.9s</title></rect>
+<rect x="1028.74" y="443" width="16.79" height="11" rx="2" fill="#B23A48"><title>运行 5148.4–5253.3s</title></rect>
+<circle cx="1045.53" cy="448.5" r="2.8" fill="#5A1620"/>
+<text x="1565" y="361" text-anchor="end" class="note">Tail E2E 2131–6886s · 抢占 10 次</text>
+<text x="20" y="490" class="policy">Central Pull + β=0.85 + Tail Pack + Tail Gate</text>
+<text x="195" y="512" text-anchor="end" class="lane">018 · B3</text>
+<rect x="264.49" y="505" width="1133.98" height="7" rx="2" fill="#F3C6CB"><title>等待 7087.3s</title></rect>
+<line x1="1398.46" y1="508.5" x2="1499.13" y2="508.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1398.46" y="503" width="100.67" height="11" rx="2" fill="#B23A48"><title>运行 7459.1–8088.3s</title></rect>
+<circle cx="1499.13" cy="508.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="530" text-anchor="end" class="lane">038 · B3</text>
+<rect x="387.17" y="523" width="909.20" height="7" rx="2" fill="#F3C6CB"><title>等待 5682.5s</title></rect>
+<line x1="1296.36" y1="526.5" x2="1398.46" y2="526.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1296.36" y="521" width="102.10" height="11" rx="2" fill="#B23A48"><title>运行 6821.0–7459.1s</title></rect>
+<circle cx="1398.46" cy="526.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="548" text-anchor="end" class="lane">060 · B3</text>
+<rect x="466.37" y="541" width="729.54" height="7" rx="2" fill="#F3C6CB"><title>等待 4559.6s</title></rect>
+<line x1="1195.91" y1="544.5" x2="1296.36" y2="544.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1195.91" y="539" width="100.46" height="11" rx="2" fill="#B23A48"><title>运行 6193.2–6821.0s</title></rect>
+<circle cx="1296.36" cy="544.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="566" text-anchor="end" class="lane">080 · B3</text>
+<rect x="587.33" y="559" width="506.78" height="7" rx="2" fill="#F3C6CB"><title>等待 3167.4s</title></rect>
+<line x1="1094.11" y1="562.5" x2="1195.91" y2="562.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1094.11" y="557" width="101.79" height="11" rx="2" fill="#B23A48"><title>运行 5557.0–6193.2s</title></rect>
+<circle cx="1195.91" cy="562.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="584" text-anchor="end" class="lane">098 · B3</text>
+<rect x="704.57" y="577" width="288.80" height="7" rx="2" fill="#F3C6CB"><title>等待 1805.0s</title></rect>
+<line x1="993.37" y1="580.5" x2="1094.11" y2="580.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="993.37" y="575" width="100.74" height="11" rx="2" fill="#B23A48"><title>运行 4927.3–5557.0s</title></rect>
+<circle cx="1094.11" cy="580.5" r="2.8" fill="#5A1620"/>
+<text x="1565" y="493" text-anchor="end" class="note">Tail E2E 2435–7717s · 抢占 0 次</text>
+<text x="20" y="622" class="policy">Release-Calendar Beam + Tail Pack + Tail Gate</text>
+<text x="195" y="644" text-anchor="end" class="lane">018 · B3</text>
+<rect x="264.49" y="637" width="1116.96" height="7" rx="2" fill="#F3C6CB"><title>等待 6981.0s</title></rect>
+<line x1="1381.45" y1="640.5" x2="1482.12" y2="640.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1381.45" y="635" width="100.67" height="11" rx="2" fill="#B23A48"><title>运行 7352.8–7982.0s</title></rect>
+<circle cx="1482.12" cy="640.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="662" text-anchor="end" class="lane">038 · B3</text>
+<rect x="387.17" y="655" width="892.18" height="7" rx="2" fill="#F3C6CB"><title>等待 5576.1s</title></rect>
+<line x1="1279.35" y1="658.5" x2="1381.45" y2="658.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1279.35" y="653" width="102.10" height="11" rx="2" fill="#B23A48"><title>运行 6714.7–7352.8s</title></rect>
+<circle cx="1381.45" cy="658.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="680" text-anchor="end" class="lane">060 · B3</text>
+<rect x="466.37" y="673" width="712.53" height="7" rx="2" fill="#F3C6CB"><title>等待 4453.3s</title></rect>
+<line x1="1178.89" y1="676.5" x2="1279.35" y2="676.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1178.89" y="671" width="100.46" height="11" rx="2" fill="#B23A48"><title>运行 6086.8–6714.7s</title></rect>
+<circle cx="1279.35" cy="676.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="698" text-anchor="end" class="lane">080 · B3</text>
+<rect x="587.33" y="691" width="489.77" height="7" rx="2" fill="#F3C6CB"><title>等待 3061.1s</title></rect>
+<line x1="1077.10" y1="694.5" x2="1178.89" y2="694.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="1077.10" y="689" width="101.79" height="11" rx="2" fill="#B23A48"><title>运行 5450.6–6086.8s</title></rect>
+<circle cx="1178.89" cy="694.5" r="2.8" fill="#5A1620"/>
+<text x="195" y="716" text-anchor="end" class="lane">098 · B3</text>
+<rect x="704.57" y="709" width="271.79" height="7" rx="2" fill="#F3C6CB"><title>等待 1698.7s</title></rect>
+<line x1="976.36" y1="712.5" x2="1077.10" y2="712.5" stroke="#D9919A" stroke-width="2"/>
+<rect x="976.36" y="707" width="100.74" height="11" rx="2" fill="#B23A48"><title>运行 4821.0–5450.6s</title></rect>
+<circle cx="1077.10" cy="712.5" r="2.8" fill="#5A1620"/>
+<text x="1565" y="625" text-anchor="end" class="note">Tail E2E 2328–7610s · 抢占 0 次</text>
+<line x1="205.00" y1="72" x2="205.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="205.00" y="764" text-anchor="middle" class="axis">0s</text>
+<line x1="365.00" y1="72" x2="365.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="365.00" y="764" text-anchor="middle" class="axis">1000s</text>
+<line x1="525.00" y1="72" x2="525.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="525.00" y="764" text-anchor="middle" class="axis">2000s</text>
+<line x1="685.00" y1="72" x2="685.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="685.00" y="764" text-anchor="middle" class="axis">3000s</text>
+<line x1="845.00" y1="72" x2="845.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="845.00" y="764" text-anchor="middle" class="axis">4000s</text>
+<line x1="1005.00" y1="72" x2="1005.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="1005.00" y="764" text-anchor="middle" class="axis">5000s</text>
+<line x1="1165.00" y1="72" x2="1165.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="1165.00" y="764" text-anchor="middle" class="axis">6000s</text>
+<line x1="1325.00" y1="72" x2="1325.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="1325.00" y="764" text-anchor="middle" class="axis">7000s</text>
+<line x1="1485.00" y1="72" x2="1485.00" y2="746" stroke="#e1e5ec" stroke-width="0.7"/>
+<text x="1485.00" y="764" text-anchor="middle" class="axis">8000s</text>
+</svg>
