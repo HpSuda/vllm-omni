@@ -134,6 +134,26 @@ class OmniOpenAIServingVideo:
             gen_params.extra_args.update(request.extra_params)
             logger.info("Applied extra_params: %s", request.extra_params)
 
+        # Isolated batch-throughput probe. This is deliberately not wired into
+        # the request scheduler: one video job asks the pipeline to produce two
+        # outputs so batch1 and batch2 can be compared without changing routing.
+        batch_test_num_outputs = gen_params.extra_args.pop("_batch_test_num_outputs", None)
+        if batch_test_num_outputs is not None:
+            try:
+                batch_test_num_outputs = int(batch_test_num_outputs)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST.value,
+                    detail="_batch_test_num_outputs must be an integer.",
+                ) from exc
+            if batch_test_num_outputs not in (1, 2):
+                raise HTTPException(
+                    status_code=HTTPStatus.BAD_REQUEST.value,
+                    detail="_batch_test_num_outputs must be 1 or 2.",
+                )
+            gen_params.num_outputs_per_prompt = batch_test_num_outputs
+            logger.info("Video batch-throughput probe: num_outputs_per_prompt=%d", batch_test_num_outputs)
+
         self._apply_lora(request.lora, gen_params)
 
         logger.info(

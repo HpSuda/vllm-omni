@@ -417,6 +417,9 @@ class DiffusionModelRunner:
         grad_context = torch.no_grad() if use_hsdp else torch.inference_mode()
         with grad_context:
             state, is_new_request, scheduled_req_ids = self._update_states(scheduler_output)
+            is_primary = not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0
+            if is_new_request and is_primary:
+                current_omni_platform.reset_peak_memory_stats()
             trace_steps = _step_trace_enabled()
             if trace_steps:
                 logger.info(
@@ -529,6 +532,8 @@ class DiffusionModelRunner:
                     else:
                         result = None
 
+                if finished and result is not None and is_primary:
+                    self._record_peak_memory(result)
                 self._update_states_after(state, finished)
                 if trace_steps:
                     logger.info(
