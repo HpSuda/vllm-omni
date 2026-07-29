@@ -61,6 +61,42 @@ _TAIL_DISPATCH_MODES = {
     "protected_drain",
 }
 
+RELEASE_CALENDAR_TAIL_PACK_BACKFILL_DEFAULTS: dict[str, Any] = {
+    "quota_every": 20,
+    "quota_amount": 1,
+    "threshold_ratio": 0.8,
+    "long_request_ratio": 1.5,
+    "sacrificial_load_factor": 0.1,
+    "normal_routing_policy": "central_pull_tail_aware_release_calendar_beam",
+    "central_pull_risk_beta": 0.85,
+    "central_pull_band_risk_beta": 0.625,
+    "central_pull_band_min_pending": 10,
+    "central_pull_band_max_pending": 27,
+    "central_pull_mix_risk_beta": 0.4,
+    "central_pull_mix_min_pending": 16,
+    "central_pull_mix_max_pending": 26,
+    "central_pull_mix_max_long_fraction": 0.32,
+    "central_pull_beam_horizon": 4,
+    "central_pull_beam_width": 16,
+    "central_pull_beam_branch_width": 6,
+    "central_pull_beam_risk_slack_s": 100.0,
+    "central_pull_beam_min_pending": 10,
+    "central_pull_beam_max_pending": 27,
+    "central_pull_beam_history_size": 128,
+    "central_pull_beam_candidate_cap": 4096,
+    "tail_routing_mode": "pack",
+    "tail_dispatch_mode": "protected_drain",
+    "tail_idle_backfill": True,
+}
+
+
+def apply_release_calendar_tail_pack_backfill_defaults(
+    args: argparse.Namespace,
+) -> argparse.Namespace:
+    for name, value in RELEASE_CALENDAR_TAIL_PACK_BACKFILL_DEFAULTS.items():
+        setattr(args, name, value)
+    return args
+
 
 @dataclass
 class BackendState:
@@ -420,6 +456,7 @@ class SuperP95Dispatcher:
         central_pull_beam_max_pending: int = 27,
         central_pull_beam_history_size: int = 128,
         central_pull_beam_candidate_cap: int = 4096,
+        running_tail_preemptible_for_normal: bool = False,
         service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
@@ -508,6 +545,7 @@ class SuperP95Dispatcher:
         self.central_pull_beam_max_pending = central_pull_beam_max_pending
         self.central_pull_beam_history_size = central_pull_beam_history_size
         self.central_pull_beam_candidate_cap = central_pull_beam_candidate_cap
+        self.running_tail_preemptible_for_normal = running_tail_preemptible_for_normal
         self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
@@ -1041,6 +1079,9 @@ class SuperP95Dispatcher:
                 "tail_routing_mode": self.tail_routing_mode,
                 "tail_dispatch_mode": self.tail_dispatch_mode,
                 "tail_idle_backfill": self.tail_idle_backfill,
+                "running_tail_preemptible_for_normal": (
+                    self.running_tail_preemptible_for_normal
+                ),
                 "service_time_estimator": self.service_time_estimator_name,
                 "request_trace_enabled": self.trace_log_file is not None,
                 "trace_log_file": self.trace_log_file,
@@ -1461,7 +1502,7 @@ class SuperP95Dispatcher:
                 backend.inflight_sacrificial_requests - gated_tail_counts[index],
                 0,
             )
-            if running_tail_count:
+            if running_tail_count and not self.running_tail_preemptible_for_normal:
                 # Production has no reliable request-level remaining-time
                 # signal for an already running Tail. Do not call that slot
                 # immediately free; fall back to Queue-Band for this pull.

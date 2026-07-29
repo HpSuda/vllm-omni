@@ -655,6 +655,86 @@ def test_release_calendar_beam_falls_back_when_tail_eta_is_unknown(
     assert selected.planner_fallback_reason == "running_tail_eta_unavailable"
 
 
+def test_release_calendar_beam_treats_preemptible_tail_as_available(
+    monkeypatch,
+) -> None:
+    now_s = 0.0
+    monkeypatch.setattr(
+        dispatcher_module.time,
+        "perf_counter",
+        lambda: now_s,
+    )
+    dispatcher = SuperP95Dispatcher(
+        backend_urls=["http://backend-0", "http://backend-1"],
+        backend_hardware_profiles=None,
+        quota_every=1000,
+        quota_amount=0,
+        threshold_ratio=0.8,
+        sacrificial_load_factor=0.1,
+        request_timeout_s=30.0,
+        normal_routing_policy=("central_pull_tail_aware_release_calendar_beam"),
+        central_pull_beam_min_pending=2,
+        central_pull_beam_max_pending=2,
+        running_tail_preemptible_for_normal=True,
+    )
+    dispatcher.backends[1].inflight_sacrificial_requests = 1
+    body = {
+        "width": "854",
+        "height": "480",
+        "num_inference_steps": "3",
+        "num_frames": "80",
+    }
+
+    async def _run():
+        incumbent = await dispatcher._choose_backend(
+            "/v1/videos",
+            {**body, "request_id": "incumbent"},
+        )
+        tasks = [
+            asyncio.create_task(
+                dispatcher._choose_backend(
+                    "/v1/videos",
+                    {**body, "request_id": f"pending-{index}"},
+                )
+            )
+            for index in range(3)
+        ]
+        await asyncio.sleep(0)
+        running_on_tail_backend_task = next(task for task in tasks if task.done())
+        running_on_tail_backend = await running_on_tail_backend_task
+        queued_tasks = [
+            task for task in tasks if task is not running_on_tail_backend_task
+        ]
+        await dispatcher._mark_failed_response(
+            incumbent,
+            elapsed_s=1.0,
+        )
+        await asyncio.sleep(0)
+        selected_task = next(task for task in queued_tasks if task.done())
+        selected = await selected_task
+        await dispatcher._mark_failed_response(
+            running_on_tail_backend,
+            elapsed_s=1.0,
+        )
+        remaining_task = next(task for task in queued_tasks if task is not selected_task)
+        remaining = await remaining_task
+        await dispatcher._mark_failed_response(
+            selected,
+            elapsed_s=1.0,
+        )
+        await dispatcher._mark_failed_response(
+            remaining,
+            elapsed_s=1.0,
+        )
+        return selected
+
+    selected = asyncio.run(_run())
+
+    assert selected.planner_used_beam is True
+    assert selected.planner_fallback_reason is None
+    assert dispatcher.release_calendar_beam_plans >= 1
+
+
 def test_release_calendar_busy_epoch_excludes_quiescent_warmup_history(
     monkeypatch,
 ) -> None:
