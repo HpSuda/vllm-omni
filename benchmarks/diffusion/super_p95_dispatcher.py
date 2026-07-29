@@ -8,14 +8,17 @@ import asyncio
 import math
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import time
+from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 import httpx
@@ -25,6 +28,12 @@ from fastapi.responses import JSONResponse, Response
 from starlette.datastructures import FormData, UploadFile
 from vllm.logger import init_logger
 
+from benchmarks.diffusion.tail_aware_release_calendar import (
+    ReleaseCalendarBeamConfig,
+    ReleaseCalendarPlan,
+    ReleaseCalendarRequest,
+    plan_release_calendar,
+)
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.diffusion.super_p95 import (
     HEADER_SUPER_P95_ESTIMATED_SERVICE_S,
@@ -43,6 +52,9 @@ _QWEN_SMALL_IMAGE_MAX_PIXELS = 768 * 768
 _CENTRAL_PULL_POLICIES = {
     "central_pull_max_risk",
     "central_pull_cost_damped_risk",
+    "central_pull_queue_band_risk",
+    "central_pull_queue_mix_risk",
+    "central_pull_tail_aware_release_calendar_beam",
 }
 _TAIL_DISPATCH_MODES = {
     "immediate",
@@ -61,6 +73,7 @@ class BackendState:
     inflight_sacrificial_requests: int = 0
     latency_ema_s: float = 0.0
     batchable_counts: dict[tuple[Any, ...], int] = field(default_factory=dict)
+    active_normal_prediction: ActiveNormalPrediction | None = None
 
     def weighted_total_load_s(self, alpha: float) -> float:
         return self.normal_load_s + alpha * self.sacrificial_load_s
@@ -77,6 +90,15 @@ class BackendState:
 
 
 @dataclass(frozen=True)
+class ActiveNormalPrediction:
+    request_id: str
+    arrival_counter: int
+    arrival_time_s: float
+    bind_at_s: float
+    estimated_service_s: float
+
+
+@dataclass(frozen=True)
 class DispatchDecision:
     backend_index: int
     estimated_service_s: float
@@ -89,11 +111,34 @@ class DispatchDecision:
     central_wait_s: float = 0.0
     central_risk_score: float | None = None
     central_risk_beta: float | None = None
+    central_queue_depth: int | None = None
+    central_risk_band_active: bool | None = None
+    central_long_fraction: float | None = None
+    central_mix_active: bool | None = None
+    request_id: str = ""
+    arrival_time_s: float | None = None
+    planner_used_beam: bool | None = None
+    planner_fallback_reason: str | None = None
+    planner_elapsed_ms: float | None = None
+    planner_candidate_count: int | None = None
+    planner_predicted_before_p95_s: float | None = None
+    planner_predicted_after_p95_s: float | None = None
+    planner_predicted_before_mean_s: float | None = None
+    planner_predicted_after_mean_s: float | None = None
+    planner_predicted_before_normal_boundary_s: float | None = None
+    planner_predicted_after_normal_boundary_s: float | None = None
+    planner_prefix: tuple[str, ...] = ()
+    planner_release_calendar_s: tuple[float, ...] = ()
+    planner_completed_history_count: int | None = None
+    planner_active_normal_count: int | None = None
+    planner_outstanding_tail_count: int | None = None
+    planner_projected_cohort_size: int | None = None
     batch_key: tuple[Any, ...] | None = None
 
 
 @dataclass
 class PendingNormalDispatch:
+    request_id: str
     arrival_counter: int
     arrival_time_s: float
     estimated_service_s_by_backend: tuple[float, ...]
@@ -109,6 +154,7 @@ class PendingNormalDispatch:
 class PendingTailDispatch:
     request_id: str
     arrival_time_s: float
+    estimated_service_s_by_backend: tuple[float, ...]
     decision: DispatchDecision
     future: asyncio.Future[DispatchDecision]
 
@@ -162,6 +208,7 @@ class ManagedBackendLauncher:
         self._processes: list[ManagedBackendProcess] = []
 
     def start_all(self) -> None:
+        self._assert_ports_available()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "Starting %d managed super_p95 backends in parallel. Logs: %s",
@@ -176,6 +223,29 @@ class ManagedBackendLauncher:
         except Exception:
             self.stop_all()
             raise
+
+    def _assert_ports_available(self) -> None:
+        occupied = [spec for spec in self.specs if self._port_has_listener(spec)]
+        if not occupied:
+            return
+        details = ", ".join(f"{spec.port}(device={spec.device_id}, url={spec.base_url})" for spec in occupied)
+        raise RuntimeError(
+            "Refusing to launch managed super_p95 backends on occupied ports: "
+            f"{details}. Stop the residual backend processes or choose different ports."
+        )
+
+    @staticmethod
+    def _port_has_listener(spec: ManagedBackendSpec) -> bool:
+        parsed = urllib_parse.urlsplit(spec.base_url)
+        host = parsed.hostname
+        port = parsed.port or spec.port
+        if not host:
+            raise ValueError(f"Managed backend URL has no host: {spec.base_url}")
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                return True
+        except OSError:
+            return False
 
     def stop_all(self) -> None:
         for managed in reversed(self._processes):
@@ -332,8 +402,24 @@ class SuperP95Dispatcher:
         long_request_ratio: float = 1.5,
         tail_routing_mode: str = "spread",
         tail_dispatch_mode: str = "immediate",
+        tail_idle_backfill: bool = False,
         normal_routing_policy: str = "assigned_load",
         central_pull_risk_beta: float = 0.5,
+        central_pull_band_risk_beta: float = 0.625,
+        central_pull_band_min_pending: int = 10,
+        central_pull_band_max_pending: int = 27,
+        central_pull_mix_risk_beta: float = 0.4,
+        central_pull_mix_min_pending: int = 16,
+        central_pull_mix_max_pending: int = 26,
+        central_pull_mix_max_long_fraction: float = 0.32,
+        central_pull_beam_horizon: int = 4,
+        central_pull_beam_width: int = 16,
+        central_pull_beam_branch_width: int = 6,
+        central_pull_beam_risk_slack_s: float = 100.0,
+        central_pull_beam_min_pending: int = 10,
+        central_pull_beam_max_pending: int = 27,
+        central_pull_beam_history_size: int = 128,
+        central_pull_beam_candidate_cap: int = 4096,
         service_time_estimator_name: str = "auto",
         trace_log_file: str | None = None,
         backend_launcher: ManagedBackendLauncher | None = None,
@@ -363,14 +449,65 @@ class SuperP95Dispatcher:
             choices = ", ".join(sorted(_TAIL_DISPATCH_MODES))
             raise ValueError(f"tail_dispatch_mode must be one of: {choices}")
         self.tail_dispatch_mode = tail_dispatch_mode
+        if tail_idle_backfill and (tail_routing_mode != "pack" or tail_dispatch_mode != "protected_drain"):
+            raise ValueError(
+                "tail_idle_backfill requires tail_routing_mode=pack and tail_dispatch_mode=protected_drain"
+            )
+        self.tail_idle_backfill = tail_idle_backfill
         valid_normal_routing_policies = {"assigned_load", *_CENTRAL_PULL_POLICIES}
         if normal_routing_policy not in valid_normal_routing_policies:
             choices = ", ".join(sorted(valid_normal_routing_policies))
             raise ValueError(f"normal_routing_policy must be one of: {choices}")
         if not math.isfinite(central_pull_risk_beta) or central_pull_risk_beta < 0.0:
             raise ValueError("central_pull_risk_beta must be a finite non-negative number")
+        if not math.isfinite(central_pull_band_risk_beta) or central_pull_band_risk_beta < 0.0:
+            raise ValueError("central_pull_band_risk_beta must be a finite non-negative number")
+        if central_pull_band_min_pending < 1:
+            raise ValueError("central_pull_band_min_pending must be positive")
+        if central_pull_band_max_pending < central_pull_band_min_pending:
+            raise ValueError("central_pull_band_max_pending cannot be less than central_pull_band_min_pending")
+        if not math.isfinite(central_pull_mix_risk_beta) or central_pull_mix_risk_beta < 0.0:
+            raise ValueError("central_pull_mix_risk_beta must be a finite non-negative number")
+        if central_pull_mix_min_pending < 1:
+            raise ValueError("central_pull_mix_min_pending must be positive")
+        if central_pull_mix_max_pending < central_pull_mix_min_pending:
+            raise ValueError("central_pull_mix_max_pending cannot be less than central_pull_mix_min_pending")
+        if (
+            not math.isfinite(central_pull_mix_max_long_fraction)
+            or not 0.0 <= central_pull_mix_max_long_fraction <= 1.0
+        ):
+            raise ValueError("central_pull_mix_max_long_fraction must be in [0, 1]")
         self.normal_routing_policy = normal_routing_policy
         self.central_pull_risk_beta = central_pull_risk_beta
+        self.central_pull_band_risk_beta = central_pull_band_risk_beta
+        self.central_pull_band_min_pending = central_pull_band_min_pending
+        self.central_pull_band_max_pending = central_pull_band_max_pending
+        self.central_pull_mix_risk_beta = central_pull_mix_risk_beta
+        self.central_pull_mix_min_pending = central_pull_mix_min_pending
+        self.central_pull_mix_max_pending = central_pull_mix_max_pending
+        self.central_pull_mix_max_long_fraction = central_pull_mix_max_long_fraction
+        self.release_calendar_beam_config = ReleaseCalendarBeamConfig(
+            horizon=central_pull_beam_horizon,
+            beam_width=central_pull_beam_width,
+            branch_width=central_pull_beam_branch_width,
+            risk_slack_s=central_pull_beam_risk_slack_s,
+            min_pending=central_pull_beam_min_pending,
+            max_pending=central_pull_beam_max_pending,
+            history_size=central_pull_beam_history_size,
+            candidate_cap=central_pull_beam_candidate_cap,
+            risk_beta=central_pull_risk_beta,
+            band_risk_beta=central_pull_band_risk_beta,
+            band_min_pending=central_pull_band_min_pending,
+            band_max_pending=central_pull_band_max_pending,
+        )
+        self.central_pull_beam_horizon = central_pull_beam_horizon
+        self.central_pull_beam_width = central_pull_beam_width
+        self.central_pull_beam_branch_width = central_pull_beam_branch_width
+        self.central_pull_beam_risk_slack_s = central_pull_beam_risk_slack_s
+        self.central_pull_beam_min_pending = central_pull_beam_min_pending
+        self.central_pull_beam_max_pending = central_pull_beam_max_pending
+        self.central_pull_beam_history_size = central_pull_beam_history_size
+        self.central_pull_beam_candidate_cap = central_pull_beam_candidate_cap
         self.service_time_estimator_name = service_time_estimator_name
 
         self._lock = asyncio.Lock()
@@ -390,6 +527,13 @@ class SuperP95Dispatcher:
         self.tail_gate_releases = 0
         self.tail_gate_wait_total_s = 0.0
         self.tail_gate_queue_max_depth = 0
+        self.tail_idle_backfill_reassignments = 0
+        self.release_calendar_plans = 0
+        self.release_calendar_beam_plans = 0
+        self.release_calendar_planner_elapsed_total_ms = 0.0
+        self.release_calendar_busy_epoch = 0
+        self.last_release_calendar_plan: ReleaseCalendarPlan | None = None
+        self._completed_latency_history_s: deque[float] = deque(maxlen=central_pull_beam_history_size)
         self._pending_normal_dispatches: list[PendingNormalDispatch] = []
         self._pending_tail_dispatches: list[PendingTailDispatch] = []
         self._client: httpx.AsyncClient | None = None
@@ -458,6 +602,30 @@ class SuperP95Dispatcher:
             central_wait_s=decision.central_wait_s,
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
+            central_queue_depth=decision.central_queue_depth,
+            central_risk_band_active=decision.central_risk_band_active,
+            central_long_fraction=decision.central_long_fraction,
+            central_mix_active=decision.central_mix_active,
+            planner_used_beam=decision.planner_used_beam,
+            planner_fallback_reason=decision.planner_fallback_reason,
+            planner_elapsed_ms=decision.planner_elapsed_ms,
+            planner_candidate_count=decision.planner_candidate_count,
+            planner_predicted_before_p95_s=(decision.planner_predicted_before_p95_s),
+            planner_predicted_after_p95_s=(decision.planner_predicted_after_p95_s),
+            planner_predicted_before_mean_s=(decision.planner_predicted_before_mean_s),
+            planner_predicted_after_mean_s=(decision.planner_predicted_after_mean_s),
+            planner_predicted_before_normal_boundary_s=(decision.planner_predicted_before_normal_boundary_s),
+            planner_predicted_after_normal_boundary_s=(decision.planner_predicted_after_normal_boundary_s),
+            planner_prefix=decision.planner_prefix,
+            planner_release_calendar_s=(decision.planner_release_calendar_s),
+            planner_completed_history_count=(decision.planner_completed_history_count),
+            planner_active_normal_count=(decision.planner_active_normal_count),
+            planner_outstanding_tail_count=(decision.planner_outstanding_tail_count),
+            planner_projected_cohort_size=(decision.planner_projected_cohort_size),
+            central_pull_mix_risk_beta=self.central_pull_mix_risk_beta,
+            central_pull_mix_min_pending=self.central_pull_mix_min_pending,
+            central_pull_mix_max_pending=self.central_pull_mix_max_pending,
+            central_pull_mix_max_long_fraction=self.central_pull_mix_max_long_fraction,
             normal_routing_policy=self.normal_routing_policy,
             tail_routing_mode=self.tail_routing_mode,
             tail_dispatch_mode=self.tail_dispatch_mode,
@@ -476,13 +644,22 @@ class SuperP95Dispatcher:
         start_time = time.perf_counter()
         try:
             response = await self._client.post(f"{backend.base_url}{path}", json=body, headers=headers)
+        except asyncio.CancelledError:
+            elapsed_s = time.perf_counter() - start_time
+            await self._mark_failed_response(decision, elapsed_s)
+            raise
         except Exception:
             elapsed_s = time.perf_counter() - start_time
             await self._mark_failed_response(decision, elapsed_s)
             raise
 
         elapsed_s = time.perf_counter() - start_time
-        await self._apply_response_feedback(decision, response.headers, elapsed_s)
+        await self._apply_response_feedback(
+            decision,
+            response.headers,
+            elapsed_s,
+            record_completed=response.status_code < 400,
+        )
         return Response(
             content=response.content,
             status_code=response.status_code,
@@ -522,6 +699,30 @@ class SuperP95Dispatcher:
             central_wait_s=decision.central_wait_s,
             central_risk_score=decision.central_risk_score,
             central_risk_beta=decision.central_risk_beta,
+            central_queue_depth=decision.central_queue_depth,
+            central_risk_band_active=decision.central_risk_band_active,
+            central_long_fraction=decision.central_long_fraction,
+            central_mix_active=decision.central_mix_active,
+            planner_used_beam=decision.planner_used_beam,
+            planner_fallback_reason=decision.planner_fallback_reason,
+            planner_elapsed_ms=decision.planner_elapsed_ms,
+            planner_candidate_count=decision.planner_candidate_count,
+            planner_predicted_before_p95_s=(decision.planner_predicted_before_p95_s),
+            planner_predicted_after_p95_s=(decision.planner_predicted_after_p95_s),
+            planner_predicted_before_mean_s=(decision.planner_predicted_before_mean_s),
+            planner_predicted_after_mean_s=(decision.planner_predicted_after_mean_s),
+            planner_predicted_before_normal_boundary_s=(decision.planner_predicted_before_normal_boundary_s),
+            planner_predicted_after_normal_boundary_s=(decision.planner_predicted_after_normal_boundary_s),
+            planner_prefix=decision.planner_prefix,
+            planner_release_calendar_s=(decision.planner_release_calendar_s),
+            planner_completed_history_count=(decision.planner_completed_history_count),
+            planner_active_normal_count=(decision.planner_active_normal_count),
+            planner_outstanding_tail_count=(decision.planner_outstanding_tail_count),
+            planner_projected_cohort_size=(decision.planner_projected_cohort_size),
+            central_pull_mix_risk_beta=self.central_pull_mix_risk_beta,
+            central_pull_mix_min_pending=self.central_pull_mix_min_pending,
+            central_pull_mix_max_pending=self.central_pull_mix_max_pending,
+            central_pull_mix_max_long_fraction=self.central_pull_mix_max_long_fraction,
             normal_routing_policy=self.normal_routing_policy,
             tail_routing_mode=self.tail_routing_mode,
             tail_dispatch_mode=self.tail_dispatch_mode,
@@ -537,30 +738,34 @@ class SuperP95Dispatcher:
         headers = self._build_forward_headers(incoming_headers, decision)
         headers.pop("content-type", None)
 
-        data: dict[str, str] = {}
-        files: list[tuple[str, tuple[str, bytes, str]]] = []
-        for key, value in form.multi_items():
-            if isinstance(value, UploadFile):
-                payload = await value.read()
-                files.append(
-                    (
-                        key,
-                        (
-                            value.filename or "upload.bin",
-                            payload,
-                            value.content_type or "application/octet-stream",
-                        ),
-                    )
-                )
-            else:
-                data[key] = str(value)
-
-        assert self._client is not None
         start_time = time.perf_counter()
         try:
+            data: dict[str, str] = {}
+            files: list[tuple[str, tuple[str, bytes, str]]] = []
+            for key, value in form.multi_items():
+                if isinstance(value, UploadFile):
+                    payload = await value.read()
+                    files.append(
+                        (
+                            key,
+                            (
+                                value.filename or "upload.bin",
+                                payload,
+                                value.content_type or "application/octet-stream",
+                            ),
+                        )
+                    )
+                else:
+                    data[key] = str(value)
+
+            assert self._client is not None
             response = await self._client.post(
                 f"{backend.base_url}{path}", data=data, files=files or None, headers=headers
             )
+        except asyncio.CancelledError:
+            elapsed_s = time.perf_counter() - start_time
+            await self._mark_failed_response(decision, elapsed_s)
+            raise
         except Exception as exc:
             elapsed_s = time.perf_counter() - start_time
             await self._mark_failed_response(decision, elapsed_s)
@@ -588,7 +793,12 @@ class SuperP95Dispatcher:
                 request_received_at_s=request_received_at_s,
             )
             if not remembered:
-                await self._apply_response_feedback(decision, response.headers, elapsed_s)
+                await self._apply_response_feedback(
+                    decision,
+                    response.headers,
+                    elapsed_s,
+                    record_completed=False,
+                )
                 write_trace_event(
                     self.trace_log_file,
                     "dispatcher_failed",
@@ -602,7 +812,12 @@ class SuperP95Dispatcher:
                     error="Backend response did not contain a video job id.",
                 )
         else:
-            await self._apply_response_feedback(decision, response.headers, elapsed_s)
+            await self._apply_response_feedback(
+                decision,
+                response.headers,
+                elapsed_s,
+                record_completed=response.status_code < 400,
+            )
             if response.status_code >= 400:
                 write_trace_event(
                     self.trace_log_file,
@@ -720,10 +935,16 @@ class SuperP95Dispatcher:
             return
         request_id = self._video_request_id_by_id.pop(video_id, "")
         received_at_s = self._video_received_at_s_by_id.pop(video_id, None)
+        completed_e2e_s = time.perf_counter() - received_at_s if received_at_s is not None else None
         async with self._lock:
             backend = self.backends[decision.backend_index]
             self._dec_inflight(backend, decision.is_sacrificial)
             self._fallback_remove_estimated_load(backend, decision)
+            self._finish_prediction_locked(
+                backend,
+                decision,
+                completed_e2e_s=(completed_e2e_s if status == "completed" else None),
+            )
             self._assign_waiting_normals_locked()
         terminal_event = "dispatcher_complete" if status == "completed" else "dispatcher_failed"
         write_trace_event(
@@ -738,7 +959,7 @@ class SuperP95Dispatcher:
             estimated_service_s=decision.estimated_service_s,
             central_wait_s=decision.central_wait_s,
             backend_inference_time_s=inference_time_s,
-            dispatcher_e2e_s=(time.perf_counter() - received_at_s if received_at_s is not None else None),
+            dispatcher_e2e_s=completed_e2e_s,
             error=error,
         )
 
@@ -773,12 +994,26 @@ class SuperP95Dispatcher:
             statuses.append({"backend": backend.name, "url": backend.base_url, "healthy": healthy, "detail": detail})
         async with self._lock:
             central_queue_depth = len(self._pending_normal_dispatches)
+            central_long_fraction = self._central_pull_long_fraction()
+            central_mix_active = self._central_pull_mix_active(
+                central_queue_depth,
+                central_long_fraction,
+            )
             central_queue_max_depth = self.central_queue_max_depth
             central_pull_dispatches = self.central_pull_dispatches
             tail_gate_queue_depth = len(self._pending_tail_dispatches)
             tail_gate_queue_max_depth = self.tail_gate_queue_max_depth
             tail_gate_releases = self.tail_gate_releases
             tail_gate_wait_total_s = self.tail_gate_wait_total_s
+            tail_idle_backfill_reassignments = self.tail_idle_backfill_reassignments
+            completed_history_count = len(self._completed_latency_history_s)
+            active_normal_predictions = sum(backend.active_normal_prediction is not None for backend in self.backends)
+            outstanding_tail_count = sum(backend.inflight_sacrificial_requests for backend in self.backends)
+            release_calendar_plans = self.release_calendar_plans
+            release_calendar_beam_plans = self.release_calendar_beam_plans
+            release_calendar_planner_elapsed_total_ms = self.release_calendar_planner_elapsed_total_ms
+            release_calendar_busy_epoch = self.release_calendar_busy_epoch
+            last_plan = self.last_release_calendar_plan
         return JSONResponse(
             status_code=200 if overall_healthy else 503,
             content={
@@ -786,8 +1021,26 @@ class SuperP95Dispatcher:
                 "backends": statuses,
                 "normal_routing_policy": self.normal_routing_policy,
                 "central_pull_risk_beta": self.central_pull_risk_beta,
+                "central_pull_band_risk_beta": self.central_pull_band_risk_beta,
+                "central_pull_band_min_pending": self.central_pull_band_min_pending,
+                "central_pull_band_max_pending": self.central_pull_band_max_pending,
+                "central_pull_mix_risk_beta": self.central_pull_mix_risk_beta,
+                "central_pull_mix_min_pending": self.central_pull_mix_min_pending,
+                "central_pull_mix_max_pending": self.central_pull_mix_max_pending,
+                "central_pull_mix_max_long_fraction": self.central_pull_mix_max_long_fraction,
+                "central_pull_beam_horizon": self.central_pull_beam_horizon,
+                "central_pull_beam_width": self.central_pull_beam_width,
+                "central_pull_beam_branch_width": self.central_pull_beam_branch_width,
+                "central_pull_beam_risk_slack_s": self.central_pull_beam_risk_slack_s,
+                "central_pull_beam_min_pending": self.central_pull_beam_min_pending,
+                "central_pull_beam_max_pending": self.central_pull_beam_max_pending,
+                "central_pull_beam_history_size": self.central_pull_beam_history_size,
+                "central_pull_beam_candidate_cap": self.central_pull_beam_candidate_cap,
+                "central_long_fraction": central_long_fraction,
+                "central_mix_active": central_mix_active,
                 "tail_routing_mode": self.tail_routing_mode,
                 "tail_dispatch_mode": self.tail_dispatch_mode,
+                "tail_idle_backfill": self.tail_idle_backfill,
                 "service_time_estimator": self.service_time_estimator_name,
                 "request_trace_enabled": self.trace_log_file is not None,
                 "trace_log_file": self.trace_log_file,
@@ -798,6 +1051,18 @@ class SuperP95Dispatcher:
                 "tail_gate_queue_max_depth": tail_gate_queue_max_depth,
                 "tail_gate_releases": tail_gate_releases,
                 "tail_gate_wait_total_s": tail_gate_wait_total_s,
+                "tail_idle_backfill_reassignments": (tail_idle_backfill_reassignments),
+                "release_calendar_completed_history_count": completed_history_count,
+                "release_calendar_active_normal_count": active_normal_predictions,
+                "release_calendar_outstanding_tail_count": outstanding_tail_count,
+                "release_calendar_plans": release_calendar_plans,
+                "release_calendar_beam_plans": release_calendar_beam_plans,
+                "release_calendar_busy_epoch": release_calendar_busy_epoch,
+                "release_calendar_planner_elapsed_total_ms": (release_calendar_planner_elapsed_total_ms),
+                "release_calendar_last_fallback_reason": (last_plan.fallback_reason if last_plan is not None else None),
+                "release_calendar_last_projected_cohort_size": (
+                    last_plan.projected_cohort_size if last_plan is not None else None
+                ),
             },
         )
 
@@ -810,6 +1075,9 @@ class SuperP95Dispatcher:
         pending_normal: PendingNormalDispatch | None = None
         pending_tail: PendingTailDispatch | None = None
         async with self._lock:
+            self._start_release_calendar_busy_epoch_locked(
+                request_id=str(body.get("request_id", "")),
+            )
             self.arrival_counter += 1
             arrival_counter = self.arrival_counter
             credits_before = self.credits
@@ -836,6 +1104,7 @@ class SuperP95Dispatcher:
             if not is_sacrificial and self.normal_routing_policy in _CENTRAL_PULL_POLICIES:
                 future = asyncio.get_running_loop().create_future()
                 pending_normal = PendingNormalDispatch(
+                    request_id=(str(body.get("request_id", "")) or f"arrival-{arrival_counter}"),
                     arrival_counter=arrival_counter,
                     arrival_time_s=arrival_time_s,
                     estimated_service_s_by_backend=tuple(estimated_service_s_by_backend),
@@ -862,7 +1131,11 @@ class SuperP95Dispatcher:
                     queue_depth=len(self._pending_normal_dispatches),
                     queue_class="normal",
                     normal_routing_policy=self.normal_routing_policy,
-                    central_risk_beta=self._central_pull_beta(),
+                    central_risk_beta=self._central_pull_beta(len(self._pending_normal_dispatches)),
+                    central_pull_mix_risk_beta=self.central_pull_mix_risk_beta,
+                    central_pull_mix_min_pending=self.central_pull_mix_min_pending,
+                    central_pull_mix_max_pending=self.central_pull_mix_max_pending,
+                    central_pull_mix_max_long_fraction=self.central_pull_mix_max_long_fraction,
                     service_time_estimator=self.service_time_estimator_name,
                     **_trace_request_fields(path, body),
                 )
@@ -878,11 +1151,14 @@ class SuperP95Dispatcher:
                     global_max_service_s=self.global_max_service_s,
                     batch_key=None,
                     central_wait_s=0.0,
+                    request_id=str(body.get("request_id", "")),
+                    arrival_time_s=arrival_time_s,
                 )
                 future = asyncio.get_running_loop().create_future()
                 pending_tail = PendingTailDispatch(
                     request_id=str(body.get("request_id", "")),
                     arrival_time_s=arrival_time_s,
+                    estimated_service_s_by_backend=tuple(estimated_service_s_by_backend),
                     decision=decision,
                     future=future,
                 )
@@ -918,6 +1194,8 @@ class SuperP95Dispatcher:
                     global_max_service_s=self.global_max_service_s,
                     batch_key=batch_key,
                     central_wait_s=0.0,
+                    request_id=str(body.get("request_id", "")),
+                    arrival_time_s=arrival_time_s,
                 )
 
         assert pending_normal is not None or pending_tail is not None
@@ -947,6 +1225,34 @@ class SuperP95Dispatcher:
                     self._assign_waiting_normals_locked()
             raise
 
+    def _start_release_calendar_busy_epoch_locked(
+        self,
+        *,
+        request_id: str,
+    ) -> None:
+        if (
+            self.normal_routing_policy != "central_pull_tail_aware_release_calendar_beam"
+            or self._pending_normal_dispatches
+            or self._pending_tail_dispatches
+            or any(
+                backend.inflight_normal_requests > 0 or backend.inflight_sacrificial_requests > 0
+                for backend in self.backends
+            )
+        ):
+            return
+        previous_history_count = len(self._completed_latency_history_s)
+        self._completed_latency_history_s.clear()
+        self.last_release_calendar_plan = None
+        self.release_calendar_busy_epoch += 1
+        write_trace_event(
+            self.trace_log_file,
+            "release_calendar_epoch_start",
+            node="dispatcher",
+            request_id=request_id or None,
+            busy_epoch=self.release_calendar_busy_epoch,
+            cleared_completed_history_count=previous_history_count,
+        )
+
     def _bind_request_locked(
         self,
         *,
@@ -959,15 +1265,21 @@ class SuperP95Dispatcher:
         global_max_service_s: float,
         batch_key: tuple[Any, ...] | None,
         central_wait_s: float,
+        request_id: str = "",
+        arrival_time_s: float | None = None,
+        bind_at_s: float | None = None,
         central_risk_score: float | None = None,
         central_risk_beta: float | None = None,
+        central_queue_depth: int | None = None,
+        central_risk_band_active: bool | None = None,
+        central_long_fraction: float | None = None,
+        central_mix_active: bool | None = None,
+        planner: ReleaseCalendarPlan | None = None,
         backend_index: int | None = None,
     ) -> DispatchDecision:
         if backend_index is None:
             backend_index = (
-                self._select_tail_backend_index()
-                if is_sacrificial
-                else self._select_backend_index(batch_key)
+                self._select_tail_backend_index() if is_sacrificial else self._select_backend_index(batch_key)
             )
         backend = self.backends[backend_index]
         selected_estimated_service_s = estimated_service_s_by_backend[backend_index]
@@ -977,6 +1289,14 @@ class SuperP95Dispatcher:
         else:
             backend.normal_load_s += selected_estimated_service_s
             backend.inflight_normal_requests += 1
+            if self.normal_routing_policy in _CENTRAL_PULL_POLICIES and arrival_time_s is not None:
+                backend.active_normal_prediction = ActiveNormalPrediction(
+                    request_id=request_id,
+                    arrival_counter=arrival_counter,
+                    arrival_time_s=arrival_time_s,
+                    bind_at_s=(time.perf_counter() if bind_at_s is None else bind_at_s),
+                    estimated_service_s=(selected_estimated_service_s),
+                )
             if batch_key is not None:
                 backend.batchable_counts[batch_key] = backend.batchable_counts.get(batch_key, 0) + 1
         logger.info(
@@ -1013,6 +1333,32 @@ class SuperP95Dispatcher:
             central_wait_s=central_wait_s,
             central_risk_score=central_risk_score,
             central_risk_beta=central_risk_beta,
+            central_queue_depth=central_queue_depth,
+            central_risk_band_active=central_risk_band_active,
+            central_long_fraction=central_long_fraction,
+            central_mix_active=central_mix_active,
+            request_id=request_id,
+            arrival_time_s=arrival_time_s,
+            planner_used_beam=(planner.used_beam if planner is not None else None),
+            planner_fallback_reason=(planner.fallback_reason if planner is not None else None),
+            planner_elapsed_ms=(planner.elapsed_ms if planner is not None else None),
+            planner_candidate_count=(planner.candidate_count if planner is not None else None),
+            planner_predicted_before_p95_s=(planner.predicted_before_p95_s if planner is not None else None),
+            planner_predicted_after_p95_s=(planner.predicted_after_p95_s if planner is not None else None),
+            planner_predicted_before_mean_s=(planner.predicted_before_mean_s if planner is not None else None),
+            planner_predicted_after_mean_s=(planner.predicted_after_mean_s if planner is not None else None),
+            planner_predicted_before_normal_boundary_s=(
+                planner.predicted_before_normal_boundary_s if planner is not None else None
+            ),
+            planner_predicted_after_normal_boundary_s=(
+                planner.predicted_after_normal_boundary_s if planner is not None else None
+            ),
+            planner_prefix=(planner.prefix if planner is not None else ()),
+            planner_release_calendar_s=(planner.release_calendar_s if planner is not None else ()),
+            planner_completed_history_count=(planner.completed_history_count if planner is not None else None),
+            planner_active_normal_count=(planner.active_normal_count if planner is not None else None),
+            planner_outstanding_tail_count=(planner.outstanding_tail_count if planner is not None else None),
+            planner_projected_cohort_size=(planner.projected_cohort_size if planner is not None else None),
             batch_key=batch_key,
         )
 
@@ -1034,18 +1380,37 @@ class SuperP95Dispatcher:
                 ),
             )
             now_s = time.perf_counter()
-            risk_beta = self._central_pull_beta()
+            queue_depth = len(self._pending_normal_dispatches)
+            long_fraction = self._central_pull_long_fraction()
+            mix_active = self._central_pull_mix_active(
+                queue_depth,
+                long_fraction,
+            )
+            risk_beta = self._central_pull_beta(queue_depth, long_fraction)
+            risk_band_active = self._central_pull_band_active(queue_depth)
 
             def risk_score(item: PendingNormalDispatch) -> float:
                 return now_s - item.arrival_time_s + risk_beta * item.estimated_service_s_by_backend[backend_index]
 
-            selected = max(
-                self._pending_normal_dispatches,
-                key=lambda item: (
-                    risk_score(item),
-                    -item.arrival_counter,
-                ),
-            )
+            planner: ReleaseCalendarPlan | None = None
+            if self.normal_routing_policy == "central_pull_tail_aware_release_calendar_beam":
+                planner = self._plan_release_calendar_locked(
+                    backend_index=backend_index,
+                    now_s=now_s,
+                )
+                selected = next(
+                    pending
+                    for pending in self._pending_normal_dispatches
+                    if pending.request_id == planner.selected_request_id
+                )
+            else:
+                selected = max(
+                    self._pending_normal_dispatches,
+                    key=lambda item: (
+                        risk_score(item),
+                        -item.arrival_counter,
+                    ),
+                )
             self._pending_normal_dispatches.remove(selected)
             central_wait_s = max(now_s - selected.arrival_time_s, 0.0)
             self.central_pull_dispatches += 1
@@ -1061,13 +1426,87 @@ class SuperP95Dispatcher:
                 global_max_service_s=selected.global_max_service_s,
                 batch_key=selected.batch_key,
                 central_wait_s=central_wait_s,
+                request_id=selected.request_id,
+                arrival_time_s=selected.arrival_time_s,
+                bind_at_s=now_s,
                 central_risk_score=risk_score(selected),
                 central_risk_beta=risk_beta,
+                central_queue_depth=queue_depth,
+                central_risk_band_active=risk_band_active,
+                central_long_fraction=long_fraction,
+                central_mix_active=mix_active,
+                planner=planner,
                 backend_index=backend_index,
             )
             if not selected.future.done():
                 selected.future.set_result(decision)
         self._release_waiting_tails_locked()
+
+    def _plan_release_calendar_locked(
+        self,
+        *,
+        backend_index: int,
+        now_s: float,
+    ) -> ReleaseCalendarPlan:
+        releases_s: list[float] = []
+        active_normal_latencies_s: list[float] = []
+        context_complete = True
+        unavailable_reason = "missing_active_normal_eta"
+        gated_tail_counts = {
+            index: sum(pending.decision.backend_index == index for pending in self._pending_tail_dispatches)
+            for index in range(len(self.backends))
+        }
+        for index, backend in enumerate(self.backends):
+            running_tail_count = max(
+                backend.inflight_sacrificial_requests - gated_tail_counts[index],
+                0,
+            )
+            if running_tail_count:
+                # Production has no reliable request-level remaining-time
+                # signal for an already running Tail. Do not call that slot
+                # immediately free; fall back to Queue-Band for this pull.
+                context_complete = False
+                unavailable_reason = "running_tail_eta_unavailable"
+                break
+            if index == backend_index or backend.inflight_normal_requests == 0:
+                releases_s.append(0.0)
+                continue
+            active = backend.active_normal_prediction
+            if active is None:
+                context_complete = False
+                break
+            release_s = max(
+                active.bind_at_s + active.estimated_service_s - now_s,
+                0.0,
+            )
+            releases_s.append(release_s)
+            active_normal_latencies_s.append(now_s + release_s - active.arrival_time_s)
+
+        plan = plan_release_calendar(
+            pending=[
+                ReleaseCalendarRequest(
+                    request_id=pending.request_id,
+                    sequence=pending.arrival_counter,
+                    arrival_time_s=pending.arrival_time_s,
+                    estimated_service_s_by_backend=(pending.estimated_service_s_by_backend),
+                )
+                for pending in self._pending_normal_dispatches
+            ],
+            now_s=now_s,
+            release_calendar_s=(tuple(releases_s) if context_complete else None),
+            first_backend_index=backend_index,
+            completed_latencies_s=tuple(self._completed_latency_history_s),
+            active_normal_projected_latencies_s=tuple(active_normal_latencies_s),
+            outstanding_tail_count=sum(backend.inflight_sacrificial_requests for backend in self.backends),
+            config=self.release_calendar_beam_config,
+            unavailable_release_reason=unavailable_reason,
+        )
+        self.release_calendar_plans += 1
+        if plan.used_beam:
+            self.release_calendar_beam_plans += 1
+        self.release_calendar_planner_elapsed_total_ms += plan.elapsed_ms
+        self.last_release_calendar_plan = plan
+        return plan
 
     def _release_waiting_tails_locked(self) -> None:
         if self.tail_dispatch_mode != "protected_drain":
@@ -1076,43 +1515,189 @@ class SuperP95Dispatcher:
             return
 
         now_s = time.perf_counter()
+        if self.tail_idle_backfill:
+            self._release_waiting_tails_with_idle_backfill_locked(now_s)
+            return
+
         for pending in tuple(self._pending_tail_dispatches):
             backend = self.backends[pending.decision.backend_index]
             if backend.inflight_normal_requests > 0:
                 continue
-            self._pending_tail_dispatches.remove(pending)
-            central_wait_s = max(now_s - pending.arrival_time_s, 0.0)
-            decision = replace(
-                pending.decision,
-                central_wait_s=central_wait_s,
+            self._release_pending_tail_locked(
+                pending,
+                now_s=now_s,
+                reserved_backend_index=pending.decision.backend_index,
             )
-            self.tail_gate_releases += 1
-            self.tail_gate_wait_total_s += central_wait_s
+
+    def _release_waiting_tails_with_idle_backfill_locked(
+        self,
+        now_s: float,
+    ) -> None:
+        gated_tail_counts = [0] * len(self.backends)
+        for pending in self._pending_tail_dispatches:
+            gated_tail_counts[pending.decision.backend_index] += 1
+
+        idle_backend_indices = []
+        for index, backend in enumerate(self.backends):
+            running_tail_count = max(
+                backend.inflight_sacrificial_requests - gated_tail_counts[index],
+                0,
+            )
+            if backend.inflight_normal_requests == 0 and running_tail_count == 0:
+                idle_backend_indices.append(index)
+        idle_backend_indices.sort(
+            key=lambda index: (
+                self.backends[index].latency_ema_s,
+                self.backends[index].name,
+            )
+        )
+
+        # Preserve Tail LIFO when the gate opens. Keep the first released Tail
+        # on its reserved Pack backend when that backend is idle, then use each
+        # other idle backend once. Remaining Tail requests stay gated until a
+        # backend completes and feedback invokes this method again.
+        for pending in reversed(tuple(self._pending_tail_dispatches)):
+            if not idle_backend_indices:
+                break
+            reserved_backend_index = pending.decision.backend_index
+            if reserved_backend_index in idle_backend_indices:
+                backend_index = reserved_backend_index
+            else:
+                backend_index = idle_backend_indices[0]
+            idle_backend_indices.remove(backend_index)
+            self._release_pending_tail_locked(
+                pending,
+                now_s=now_s,
+                reserved_backend_index=reserved_backend_index,
+                backend_index=backend_index,
+            )
+
+    def _release_pending_tail_locked(
+        self,
+        pending: PendingTailDispatch,
+        *,
+        now_s: float,
+        reserved_backend_index: int,
+        backend_index: int | None = None,
+    ) -> None:
+        if backend_index is None:
+            backend_index = reserved_backend_index
+        decision = pending.decision
+        if backend_index != reserved_backend_index:
+            reserved_backend = self.backends[reserved_backend_index]
+            target_backend = self.backends[backend_index]
+            self._dec_inflight(reserved_backend, is_sacrificial=True)
+            self._fallback_remove_estimated_load(
+                reserved_backend,
+                decision,
+            )
+            target_estimate_s = pending.estimated_service_s_by_backend[backend_index]
+            target_backend.inflight_sacrificial_requests += 1
+            target_backend.sacrificial_load_s += target_estimate_s
+            decision = replace(
+                decision,
+                backend_index=backend_index,
+                estimated_service_s=target_estimate_s,
+            )
+            pending.decision = decision
+            self.tail_idle_backfill_reassignments += 1
             write_trace_event(
                 self.trace_log_file,
-                "tail_gate_release",
+                "tail_idle_backfill",
                 node="dispatcher",
                 request_id=pending.request_id or None,
                 arrival_counter=decision.arrival_counter,
-                backend=backend.name,
-                estimated_service_s=decision.estimated_service_s,
-                central_wait_s=central_wait_s,
+                reserved_backend=self.backends[reserved_backend_index].name,
+                backend=target_backend.name,
+                estimated_service_s=target_estimate_s,
                 central_queue_depth=len(self._pending_normal_dispatches),
                 tail_gate_queue_depth=len(self._pending_tail_dispatches),
-                tail_dispatch_mode=self.tail_dispatch_mode,
             )
-            if not pending.future.done():
-                pending.future.set_result(decision)
+
+        self._pending_tail_dispatches.remove(pending)
+        central_wait_s = max(now_s - pending.arrival_time_s, 0.0)
+        decision = replace(
+            decision,
+            central_wait_s=central_wait_s,
+        )
+        backend = self.backends[decision.backend_index]
+        self.tail_gate_releases += 1
+        self.tail_gate_wait_total_s += central_wait_s
+        write_trace_event(
+            self.trace_log_file,
+            "tail_gate_release",
+            node="dispatcher",
+            request_id=pending.request_id or None,
+            arrival_counter=decision.arrival_counter,
+            backend=backend.name,
+            reserved_backend=self.backends[reserved_backend_index].name,
+            idle_backfill=self.tail_idle_backfill,
+            estimated_service_s=decision.estimated_service_s,
+            central_wait_s=central_wait_s,
+            central_queue_depth=len(self._pending_normal_dispatches),
+            tail_gate_queue_depth=len(self._pending_tail_dispatches),
+            tail_dispatch_mode=self.tail_dispatch_mode,
+        )
+        if not pending.future.done():
+            pending.future.set_result(decision)
 
     def _rollback_pending_tail_locked(self, pending: PendingTailDispatch) -> None:
         backend = self.backends[pending.decision.backend_index]
         self._dec_inflight(backend, is_sacrificial=True)
         self._fallback_remove_estimated_load(backend, pending.decision)
 
-    def _central_pull_beta(self) -> float:
+    def _central_pull_beta(
+        self,
+        queue_depth: int | None = None,
+        long_fraction: float | None = None,
+    ) -> float:
         if self.normal_routing_policy == "central_pull_max_risk":
             return 1.0
+        if self._central_pull_mix_active(queue_depth, long_fraction):
+            return self.central_pull_mix_risk_beta
+        if self._central_pull_band_active(queue_depth):
+            return self.central_pull_band_risk_beta
         return self.central_pull_risk_beta
+
+    def _central_pull_band_active(self, queue_depth: int | None) -> bool:
+        return (
+            self.normal_routing_policy
+            in {
+                "central_pull_queue_band_risk",
+                "central_pull_queue_mix_risk",
+                "central_pull_tail_aware_release_calendar_beam",
+            }
+            and queue_depth is not None
+            and self.central_pull_band_min_pending <= queue_depth <= self.central_pull_band_max_pending
+        )
+
+    def _central_pull_long_fraction(self) -> float | None:
+        if self.normal_routing_policy != "central_pull_queue_mix_risk":
+            return None
+        queue_depth = len(self._pending_normal_dispatches)
+        if queue_depth == 0:
+            return None
+        # Reuse the exact production Tail eligibility predicate: a request is
+        # long only when it is both near the largest observed estimate and
+        # clearly larger than the smallest observed estimate.
+        long_count = sum(
+            self._is_sacrificial_candidate(min(pending.estimated_service_s_by_backend))
+            for pending in self._pending_normal_dispatches
+        )
+        return long_count / queue_depth
+
+    def _central_pull_mix_active(
+        self,
+        queue_depth: int | None,
+        long_fraction: float | None,
+    ) -> bool:
+        return (
+            self.normal_routing_policy == "central_pull_queue_mix_risk"
+            and queue_depth is not None
+            and long_fraction is not None
+            and self.central_pull_mix_min_pending <= queue_depth <= self.central_pull_mix_max_pending
+            and long_fraction <= self.central_pull_mix_max_long_fraction
+        )
 
     def _select_backend_index(self, batch_key: tuple[Any, ...] | None) -> int:
         if batch_key is not None:
@@ -1134,8 +1719,7 @@ class SuperP95Dispatcher:
             tail_loaded = [
                 idx
                 for idx, backend in enumerate(self.backends)
-                if backend.inflight_sacrificial_requests > 0
-                or backend.sacrificial_load_s > 0.0
+                if backend.inflight_sacrificial_requests > 0 or backend.sacrificial_load_s > 0.0
             ]
             if tail_loaded:
                 return min(
@@ -1150,8 +1734,7 @@ class SuperP95Dispatcher:
             return min(
                 range(len(self.backends)),
                 key=lambda idx: (
-                    self.backends[idx].normal_load_s
-                    + self.backends[idx].sacrificial_load_s,
+                    self.backends[idx].normal_load_s + self.backends[idx].sacrificial_load_s,
                     self.backends[idx].latency_ema_s,
                     self.backends[idx].name,
                 ),
@@ -1173,6 +1756,8 @@ class SuperP95Dispatcher:
         decision: DispatchDecision,
         headers: httpx.Headers,
         elapsed_s: float,
+        *,
+        record_completed: bool = True,
     ) -> None:
         async with self._lock:
             backend = self.backends[decision.backend_index]
@@ -1185,6 +1770,23 @@ class SuperP95Dispatcher:
                 backend.sacrificial_load_s = authoritative.sacrificial_load_s
             else:
                 self._fallback_remove_estimated_load(backend, decision)
+            completed_e2e_s = (
+                time.perf_counter() - decision.arrival_time_s
+                if decision.arrival_time_s is not None
+                else decision.central_wait_s + elapsed_s
+            )
+            self._finish_prediction_locked(
+                backend,
+                decision,
+                completed_e2e_s=(
+                    max(
+                        completed_e2e_s,
+                        decision.central_wait_s + elapsed_s,
+                    )
+                    if record_completed
+                    else None
+                ),
+            )
             self._assign_waiting_normals_locked()
 
     async def _mark_failed_response(self, decision: DispatchDecision, elapsed_s: float) -> None:
@@ -1194,7 +1796,25 @@ class SuperP95Dispatcher:
             self._dec_inflight(backend, decision.is_sacrificial)
             self._dec_batchable_count(backend, decision.batch_key)
             self._fallback_remove_estimated_load(backend, decision)
+            self._finish_prediction_locked(
+                backend,
+                decision,
+                completed_e2e_s=None,
+            )
             self._assign_waiting_normals_locked()
+
+    def _finish_prediction_locked(
+        self,
+        backend: BackendState,
+        decision: DispatchDecision,
+        *,
+        completed_e2e_s: float | None,
+    ) -> None:
+        active = backend.active_normal_prediction
+        if not decision.is_sacrificial and active is not None and active.arrival_counter == decision.arrival_counter:
+            backend.active_normal_prediction = None
+        if completed_e2e_s is not None and math.isfinite(completed_e2e_s) and completed_e2e_s >= 0.0:
+            self._completed_latency_history_s.append(completed_e2e_s)
 
     def _is_sacrificial_candidate(self, estimated_service_s: float) -> bool:
         if self.global_max_service_s <= 0.0:
@@ -1621,14 +2241,35 @@ def build_arg_parser(
         ),
     )
     parser.add_argument(
+        "--tail-idle-backfill",
+        action="store_true",
+        help=(
+            "With Tail Pack + protected_drain, release gated Tail requests "
+            "onto otherwise idle backends in LIFO order. At most one Tail is "
+            "released per idle backend; remaining Tail requests stay gated."
+        ),
+    )
+    parser.add_argument(
         "--normal-routing-policy",
-        choices=("assigned_load", "central_pull_max_risk", "central_pull_cost_damped_risk"),
+        choices=(
+            "assigned_load",
+            "central_pull_max_risk",
+            "central_pull_cost_damped_risk",
+            "central_pull_queue_band_risk",
+            "central_pull_queue_mix_risk",
+            "central_pull_tail_aware_release_calendar_beam",
+        ),
         default="assigned_load",
         help=(
             "Normal request binding policy. Central-pull policies keep unstarted "
             "Normal requests in an online global queue. max_risk selects the "
             "maximum (wait + estimate); cost_damped_risk uses "
-            "(wait + beta * estimate)."
+            "(wait + beta * estimate); queue_band_risk substitutes a second "
+            "beta only while the current queue depth is inside a configured band; "
+            "queue_mix_risk can use a third beta when that band contains few "
+            "online long requests; tail_aware_release_calendar_beam plans a "
+            "bounded sequence over visible backend release times and executes "
+            "only its first action."
         ),
     )
     parser.add_argument(
@@ -1639,6 +2280,98 @@ def build_arg_parser(
             "Estimated-service weight for central_pull_cost_damped_risk. "
             "The Wan2.2 P95 candidate uses 0.5; central_pull_max_risk always uses 1.0."
         ),
+    )
+    parser.add_argument(
+        "--central-pull-band-risk-beta",
+        type=float,
+        default=0.625,
+        help="Estimated-service weight used inside the queue-depth band.",
+    )
+    parser.add_argument(
+        "--central-pull-band-min-pending",
+        type=int,
+        default=10,
+        help="Inclusive lower central-queue depth for the band beta.",
+    )
+    parser.add_argument(
+        "--central-pull-band-max-pending",
+        type=int,
+        default=27,
+        help="Inclusive upper central-queue depth for the band beta.",
+    )
+    parser.add_argument(
+        "--central-pull-mix-risk-beta",
+        type=float,
+        default=0.4,
+        help="Estimated-service weight used while the online queue mix gate is active.",
+    )
+    parser.add_argument(
+        "--central-pull-mix-min-pending",
+        type=int,
+        default=16,
+        help="Inclusive lower central-queue depth for the queue-mix beta.",
+    )
+    parser.add_argument(
+        "--central-pull-mix-max-pending",
+        type=int,
+        default=26,
+        help="Inclusive upper central-queue depth for the queue-mix beta.",
+    )
+    parser.add_argument(
+        "--central-pull-mix-max-long-fraction",
+        type=float,
+        default=0.32,
+        help="Maximum online long-request fraction for activating the queue-mix beta.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-horizon",
+        type=int,
+        default=4,
+        help="Number of visible release decisions explored by the beam planner.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-width",
+        type=int,
+        default=16,
+        help="Maximum number of partial schedules retained per planning depth.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-branch-width",
+        type=int,
+        default=6,
+        help=(
+            "Maximum risk-ranked branches per state; one eligible shortest structural alternative may also be added."
+        ),
+    )
+    parser.add_argument(
+        "--central-pull-beam-risk-slack-s",
+        type=float,
+        default=100.0,
+        help="Risk distance from the maximum for beam candidate eligibility.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-min-pending",
+        type=int,
+        default=10,
+        help="Inclusive lower queue depth for enabling beam planning.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-max-pending",
+        type=int,
+        default=27,
+        help="Inclusive upper queue depth for enabling beam planning.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-history-size",
+        type=int,
+        default=128,
+        help="Bounded completed-request latency cohort used by the objective.",
+    )
+    parser.add_argument(
+        "--central-pull-beam-candidate-cap",
+        type=int,
+        default=4096,
+        help="Hard cap on expanded beam candidates per pull decision.",
     )
     parser.add_argument(
         "--request-timeout-s",
@@ -1787,12 +2520,88 @@ def build_dispatcher_from_args(
         request_timeout_s=args.request_timeout_s,
         tail_routing_mode=getattr(args, "tail_routing_mode", "spread"),
         tail_dispatch_mode=getattr(args, "tail_dispatch_mode", "immediate"),
+        tail_idle_backfill=getattr(args, "tail_idle_backfill", False),
         normal_routing_policy=getattr(
             args,
             "normal_routing_policy",
             "assigned_load",
         ),
         central_pull_risk_beta=getattr(args, "central_pull_risk_beta", 0.5),
+        central_pull_band_risk_beta=getattr(
+            args,
+            "central_pull_band_risk_beta",
+            0.625,
+        ),
+        central_pull_band_min_pending=getattr(
+            args,
+            "central_pull_band_min_pending",
+            10,
+        ),
+        central_pull_band_max_pending=getattr(
+            args,
+            "central_pull_band_max_pending",
+            27,
+        ),
+        central_pull_mix_risk_beta=getattr(
+            args,
+            "central_pull_mix_risk_beta",
+            0.4,
+        ),
+        central_pull_mix_min_pending=getattr(
+            args,
+            "central_pull_mix_min_pending",
+            16,
+        ),
+        central_pull_mix_max_pending=getattr(
+            args,
+            "central_pull_mix_max_pending",
+            26,
+        ),
+        central_pull_mix_max_long_fraction=getattr(
+            args,
+            "central_pull_mix_max_long_fraction",
+            0.32,
+        ),
+        central_pull_beam_horizon=getattr(
+            args,
+            "central_pull_beam_horizon",
+            4,
+        ),
+        central_pull_beam_width=getattr(
+            args,
+            "central_pull_beam_width",
+            16,
+        ),
+        central_pull_beam_branch_width=getattr(
+            args,
+            "central_pull_beam_branch_width",
+            6,
+        ),
+        central_pull_beam_risk_slack_s=getattr(
+            args,
+            "central_pull_beam_risk_slack_s",
+            100.0,
+        ),
+        central_pull_beam_min_pending=getattr(
+            args,
+            "central_pull_beam_min_pending",
+            10,
+        ),
+        central_pull_beam_max_pending=getattr(
+            args,
+            "central_pull_beam_max_pending",
+            27,
+        ),
+        central_pull_beam_history_size=getattr(
+            args,
+            "central_pull_beam_history_size",
+            128,
+        ),
+        central_pull_beam_candidate_cap=getattr(
+            args,
+            "central_pull_beam_candidate_cap",
+            4096,
+        ),
         trace_log_file=(str(Path(args.trace_log_dir) / "dispatcher.jsonl") if args.trace_log_dir else None),
         backend_launcher=backend_launcher,
         **(dispatcher_kwargs or {}),

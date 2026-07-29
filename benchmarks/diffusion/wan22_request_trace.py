@@ -27,10 +27,35 @@ _ROW_FIELDS = (
     "normal_routing_policy",
     "tail_routing_mode",
     "tail_dispatch_mode",
+    "tail_idle_backfill",
+    "tail_reserved_backend",
     "tail_gate_wait_s",
     "central_risk_beta",
     "central_risk_score",
     "central_queue_depth",
+    "central_risk_band_active",
+    "central_long_fraction",
+    "central_mix_active",
+    "central_pull_mix_risk_beta",
+    "central_pull_mix_min_pending",
+    "central_pull_mix_max_pending",
+    "central_pull_mix_max_long_fraction",
+    "planner_used_beam",
+    "planner_fallback_reason",
+    "planner_elapsed_ms",
+    "planner_candidate_count",
+    "planner_predicted_before_p95_s",
+    "planner_predicted_after_p95_s",
+    "planner_predicted_before_mean_s",
+    "planner_predicted_after_mean_s",
+    "planner_predicted_before_normal_boundary_s",
+    "planner_predicted_after_normal_boundary_s",
+    "planner_prefix",
+    "planner_release_calendar_s",
+    "planner_completed_history_count",
+    "planner_active_normal_count",
+    "planner_outstanding_tail_count",
+    "planner_projected_cohort_size",
     "central_wait_s",
     "backend",
     "video_id",
@@ -167,6 +192,8 @@ def _build_request_row(request_id: str, events: list[dict[str, Any]]) -> dict[st
     dispatcher_arrive = _first_event(events, "dispatcher_arrive")
     central_enqueue = _first_event(events, "central_enqueue")
     dispatch = _first_event(events, "dispatch")
+    tail_idle_backfill = _first_event(events, "tail_idle_backfill")
+    tail_gate_release = _first_event(events, "tail_gate_release")
     job_accepted = _first_event(events, "client_job_accepted") or _first_event(events, "dispatcher_job_accepted")
     backend_start = _first_event(events, "backend_start")
     backend_terminal = _first_event(events, "backend_complete") or _first_event(events, "backend_failed")
@@ -185,6 +212,9 @@ def _build_request_row(request_id: str, events: list[dict[str, Any]]) -> dict[st
     scheduler_terminal_ts = _number(scheduler_terminal, "ts")
     actual_backend_start_ts = scheduler_start_ts or api_backend_start_ts
     estimated_service_s = _coalesce_number(dispatch, "estimated_service_s", central_enqueue)
+    tail_gate_wait_s = _coalesce_number(tail_gate_release, "central_wait_s")
+    if tail_gate_wait_s is None:
+        tail_gate_wait_s = _coalesce_number(dispatch, "tail_gate_wait_s")
     backend_inference_time_s = _coalesce_number(
         backend_terminal,
         "inference_time_s",
@@ -222,12 +252,106 @@ def _build_request_row(request_id: str, events: list[dict[str, Any]]) -> dict[st
         "normal_routing_policy": _coalesce(dispatch, "normal_routing_policy", central_enqueue),
         "tail_routing_mode": _coalesce(dispatch, "tail_routing_mode"),
         "tail_dispatch_mode": _coalesce(dispatch, "tail_dispatch_mode"),
-        "tail_gate_wait_s": _coalesce_number(dispatch, "tail_gate_wait_s"),
+        "tail_idle_backfill": tail_idle_backfill is not None,
+        "tail_reserved_backend": _coalesce(
+            tail_idle_backfill,
+            "reserved_backend",
+            tail_gate_release,
+        ),
+        "tail_gate_wait_s": tail_gate_wait_s,
         "central_risk_beta": _coalesce_number(dispatch, "central_risk_beta", central_enqueue),
         "central_risk_score": _coalesce_number(dispatch, "central_risk_score"),
-        "central_queue_depth": _coalesce(central_enqueue, "queue_depth"),
+        "central_queue_depth": _coalesce(dispatch, "central_queue_depth", central_enqueue, fallback_key="queue_depth"),
+        "central_risk_band_active": _coalesce(dispatch, "central_risk_band_active"),
+        "central_long_fraction": _coalesce_number(dispatch, "central_long_fraction"),
+        "central_mix_active": _coalesce(dispatch, "central_mix_active"),
+        "central_pull_mix_risk_beta": _coalesce_number(
+            dispatch,
+            "central_pull_mix_risk_beta",
+            central_enqueue,
+        ),
+        "central_pull_mix_min_pending": _coalesce(
+            dispatch,
+            "central_pull_mix_min_pending",
+            central_enqueue,
+        ),
+        "central_pull_mix_max_pending": _coalesce(
+            dispatch,
+            "central_pull_mix_max_pending",
+            central_enqueue,
+        ),
+        "central_pull_mix_max_long_fraction": _coalesce_number(
+            dispatch,
+            "central_pull_mix_max_long_fraction",
+            central_enqueue,
+        ),
+        "planner_used_beam": _coalesce(dispatch, "planner_used_beam"),
+        "planner_fallback_reason": _coalesce(
+            dispatch,
+            "planner_fallback_reason",
+        ),
+        "planner_elapsed_ms": _coalesce_number(
+            dispatch,
+            "planner_elapsed_ms",
+        ),
+        "planner_candidate_count": _coalesce(
+            dispatch,
+            "planner_candidate_count",
+        ),
+        "planner_predicted_before_p95_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_before_p95_s",
+        ),
+        "planner_predicted_after_p95_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_after_p95_s",
+        ),
+        "planner_predicted_before_mean_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_before_mean_s",
+        ),
+        "planner_predicted_after_mean_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_after_mean_s",
+        ),
+        "planner_predicted_before_normal_boundary_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_before_normal_boundary_s",
+        ),
+        "planner_predicted_after_normal_boundary_s": _coalesce_number(
+            dispatch,
+            "planner_predicted_after_normal_boundary_s",
+        ),
+        "planner_prefix": _coalesce(dispatch, "planner_prefix"),
+        "planner_release_calendar_s": _coalesce(
+            dispatch,
+            "planner_release_calendar_s",
+        ),
+        "planner_completed_history_count": _coalesce(
+            dispatch,
+            "planner_completed_history_count",
+        ),
+        "planner_active_normal_count": _coalesce(
+            dispatch,
+            "planner_active_normal_count",
+        ),
+        "planner_outstanding_tail_count": _coalesce(
+            dispatch,
+            "planner_outstanding_tail_count",
+        ),
+        "planner_projected_cohort_size": _coalesce(
+            dispatch,
+            "planner_projected_cohort_size",
+        ),
         "central_wait_s": _coalesce_number(dispatch, "central_wait_s"),
-        "backend": _coalesce(dispatch, "backend", backend_start, fallback_key="node"),
+        "backend": _coalesce(
+            tail_idle_backfill,
+            "backend",
+            tail_gate_release,
+            dispatch,
+            backend_start,
+            fallback_key="node",
+        ),
         "video_id": _coalesce(job_accepted, "video_id", backend_start),
         "sched_req_id": _coalesce(scheduler_start, "sched_req_id", scheduler_terminal),
         "dispatcher_arrival_offset_s": _difference(dispatcher_arrival_ts, arrival_ts),

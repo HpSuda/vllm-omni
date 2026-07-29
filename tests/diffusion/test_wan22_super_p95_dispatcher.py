@@ -5,11 +5,48 @@ import pytest
 from fastapi import HTTPException
 
 from benchmarks.diffusion.wan22_super_p95_dispatcher import (
+    WAN22_SCHEDULING_MODE_RELEASE_CALENDAR_TAIL_PACK_BACKFILL,
     Wan22ServiceTimeEstimator,
     Wan22SuperP95Dispatcher,
+    parse_args,
 )
 
 pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
+
+
+def test_release_calendar_tail_pack_backfill_mode_applies_internal_defaults() -> None:
+    args = parse_args(
+        [
+            "--wan22-scheduling-mode",
+            WAN22_SCHEDULING_MODE_RELEASE_CALENDAR_TAIL_PACK_BACKFILL,
+        ]
+    )
+
+    assert args.quota_every == 20
+    assert args.quota_amount == 1
+    assert args.threshold_ratio == 0.8
+    assert args.long_request_ratio == 1.5
+    assert args.sacrificial_load_factor == 0.1
+    assert args.normal_routing_policy == "central_pull_tail_aware_release_calendar_beam"
+    assert args.central_pull_risk_beta == 0.85
+    assert args.central_pull_band_risk_beta == 0.625
+    assert args.central_pull_band_min_pending == 10
+    assert args.central_pull_band_max_pending == 27
+    assert args.central_pull_mix_risk_beta == 0.4
+    assert args.central_pull_mix_min_pending == 16
+    assert args.central_pull_mix_max_pending == 26
+    assert args.central_pull_mix_max_long_fraction == 0.32
+    assert args.central_pull_beam_horizon == 4
+    assert args.central_pull_beam_width == 16
+    assert args.central_pull_beam_branch_width == 6
+    assert args.central_pull_beam_risk_slack_s == 100.0
+    assert args.central_pull_beam_min_pending == 10
+    assert args.central_pull_beam_max_pending == 27
+    assert args.central_pull_beam_history_size == 128
+    assert args.central_pull_beam_candidate_cap == 4096
+    assert args.tail_routing_mode == "pack"
+    assert args.tail_dispatch_mode == "protected_drain"
+    assert args.tail_idle_backfill is True
 
 
 @pytest.mark.parametrize(

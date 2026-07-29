@@ -76,6 +76,41 @@ WAN22_ESTIMATOR_PROFILES: dict[str, dict[str, dict[Wan22WorkloadKey, float]]] = 
     },
 }
 
+WAN22_SCHEDULING_MODE_CUSTOM = "custom"
+WAN22_SCHEDULING_MODE_RELEASE_CALENDAR_TAIL_PACK_BACKFILL = "release_calendar_tail_pack_backfill"
+WAN22_SCHEDULING_MODES = (
+    WAN22_SCHEDULING_MODE_CUSTOM,
+    WAN22_SCHEDULING_MODE_RELEASE_CALENDAR_TAIL_PACK_BACKFILL,
+)
+
+_RELEASE_CALENDAR_TAIL_PACK_BACKFILL_DEFAULTS: dict[str, Any] = {
+    "quota_every": 20,
+    "quota_amount": 1,
+    "threshold_ratio": 0.8,
+    "long_request_ratio": 1.5,
+    "sacrificial_load_factor": 0.1,
+    "normal_routing_policy": "central_pull_tail_aware_release_calendar_beam",
+    "central_pull_risk_beta": 0.85,
+    "central_pull_band_risk_beta": 0.625,
+    "central_pull_band_min_pending": 10,
+    "central_pull_band_max_pending": 27,
+    "central_pull_mix_risk_beta": 0.4,
+    "central_pull_mix_min_pending": 16,
+    "central_pull_mix_max_pending": 26,
+    "central_pull_mix_max_long_fraction": 0.32,
+    "central_pull_beam_horizon": 4,
+    "central_pull_beam_width": 16,
+    "central_pull_beam_branch_width": 6,
+    "central_pull_beam_risk_slack_s": 100.0,
+    "central_pull_beam_min_pending": 10,
+    "central_pull_beam_max_pending": 27,
+    "central_pull_beam_history_size": 128,
+    "central_pull_beam_candidate_cap": 4096,
+    "tail_routing_mode": "pack",
+    "tail_dispatch_mode": "protected_drain",
+    "tail_idle_backfill": True,
+}
+
 
 @dataclass(frozen=True)
 class Wan22ServiceTimeEstimator:
@@ -181,7 +216,14 @@ def _parse_positive_int(value: Any, *, default: int) -> int:
     return _parse_optional_positive_int(value) or default
 
 
-def parse_args() -> argparse.Namespace:
+def apply_wan22_scheduling_mode(args: argparse.Namespace) -> argparse.Namespace:
+    if args.wan22_scheduling_mode == WAN22_SCHEDULING_MODE_RELEASE_CALENDAR_TAIL_PACK_BACKFILL:
+        for name, value in _RELEASE_CALENDAR_TAIL_PACK_BACKFILL_DEFAULTS.items():
+            setattr(args, name, value)
+    return args
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = build_arg_parser(description="Wan2.2-specific super_p95 dispatcher")
     parser.add_argument(
         "--wan22-estimator-profile",
@@ -192,7 +234,17 @@ def parse_args() -> argparse.Namespace:
             "backend load accounting, and Max Risk ordering."
         ),
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--wan22-scheduling-mode",
+        choices=WAN22_SCHEDULING_MODES,
+        default=WAN22_SCHEDULING_MODE_CUSTOM,
+        help=(
+            "Named Wan2.2 scheduling mode. release_calendar_tail_pack_backfill "
+            "enables the calibrated Release-Calendar, Tail Pack, protected "
+            "drain, and idle-backfill configuration."
+        ),
+    )
+    return apply_wan22_scheduling_mode(parser.parse_args(argv))
 
 
 def main() -> None:

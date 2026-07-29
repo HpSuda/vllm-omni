@@ -66,9 +66,35 @@ def test_trace_report_joins_client_dispatcher_and_backend_events(tmp_path) -> No
             "normal_routing_policy": "central_pull_cost_damped_risk",
             "tail_routing_mode": "pack",
             "tail_dispatch_mode": "protected_drain",
+            "tail_idle_backfill": False,
+            "tail_reserved_backend": None,
             "tail_gate_wait_s": None,
             "central_risk_beta": 0.5,
             "central_risk_score": 43.0,
+            "central_queue_depth": 2,
+            "central_risk_band_active": True,
+            "central_long_fraction": 0.25,
+            "central_mix_active": True,
+            "central_pull_mix_risk_beta": 0.4,
+            "central_pull_mix_min_pending": 16,
+            "central_pull_mix_max_pending": 26,
+            "central_pull_mix_max_long_fraction": 0.32,
+            "planner_used_beam": True,
+            "planner_fallback_reason": None,
+            "planner_elapsed_ms": 2.5,
+            "planner_candidate_count": 61,
+            "planner_predicted_before_p95_s": None,
+            "planner_predicted_after_p95_s": None,
+            "planner_predicted_before_mean_s": 70.0,
+            "planner_predicted_after_mean_s": 65.0,
+            "planner_predicted_before_normal_boundary_s": 90.0,
+            "planner_predicted_after_normal_boundary_s": 82.0,
+            "planner_prefix": ["request-00000", "request-00002"],
+            "planner_release_calendar_s": [0.0, 12.0],
+            "planner_completed_history_count": 5,
+            "planner_active_normal_count": 1,
+            "planner_outstanding_tail_count": 1,
+            "planner_projected_cohort_size": 10,
             "central_wait_s": 9.0,
             "workload_class": "short",
         },
@@ -133,10 +159,35 @@ def test_trace_report_joins_client_dispatcher_and_backend_events(tmp_path) -> No
             "normal_routing_policy": "central_pull_cost_damped_risk",
             "tail_routing_mode": "pack",
             "tail_dispatch_mode": "protected_drain",
+            "tail_idle_backfill": False,
+            "tail_reserved_backend": None,
             "tail_gate_wait_s": None,
             "central_risk_beta": 0.5,
             "central_risk_score": 43.0,
-            "central_queue_depth": 4,
+            "central_queue_depth": 2,
+            "central_risk_band_active": True,
+            "central_long_fraction": 0.25,
+            "central_mix_active": True,
+            "central_pull_mix_risk_beta": 0.4,
+            "central_pull_mix_min_pending": 16,
+            "central_pull_mix_max_pending": 26,
+            "central_pull_mix_max_long_fraction": 0.32,
+            "planner_used_beam": True,
+            "planner_fallback_reason": None,
+            "planner_elapsed_ms": 2.5,
+            "planner_candidate_count": 61,
+            "planner_predicted_before_p95_s": None,
+            "planner_predicted_after_p95_s": None,
+            "planner_predicted_before_mean_s": 70.0,
+            "planner_predicted_after_mean_s": 65.0,
+            "planner_predicted_before_normal_boundary_s": 90.0,
+            "planner_predicted_after_normal_boundary_s": 82.0,
+            "planner_prefix": ["request-00000", "request-00002"],
+            "planner_release_calendar_s": [0.0, 12.0],
+            "planner_completed_history_count": 5,
+            "planner_active_normal_count": 1,
+            "planner_outstanding_tail_count": 1,
+            "planner_projected_cohort_size": 10,
             "central_wait_s": 9.0,
             "backend": "backend-2",
             "video_id": "video-1",
@@ -166,6 +217,52 @@ def test_trace_report_joins_client_dispatcher_and_backend_events(tmp_path) -> No
     json_path, csv_path = write_trace_report(rows, output_prefix=tmp_path / "report")
     assert json.loads(json_path.read_text(encoding="utf-8"))["summary"]["successful_request_count"] == 1
     assert csv_path.read_text(encoding="utf-8").splitlines()[1].startswith("request-00000,")
+
+
+def test_trace_report_uses_idle_backfill_backend_for_tail_request() -> None:
+    events = [
+        {
+            "ts": 100.0,
+            "ts_ns": 100,
+            "event": "client_arrive",
+            "request_id": "request-00019",
+        },
+        {
+            "ts": 101.0,
+            "ts_ns": 200,
+            "event": "tail_idle_backfill",
+            "request_id": "request-00019",
+            "reserved_backend": "backend-0",
+            "backend": "backend-2",
+        },
+        {
+            "ts": 101.1,
+            "ts_ns": 300,
+            "event": "tail_gate_release",
+            "request_id": "request-00019",
+            "reserved_backend": "backend-0",
+            "backend": "backend-2",
+            "central_wait_s": 12.5,
+            "idle_backfill": True,
+        },
+        {
+            "ts": 101.2,
+            "ts_ns": 400,
+            "event": "dispatch",
+            "request_id": "request-00019",
+            "backend": "backend-0",
+            "queue_class": "tail",
+            "tail_routing_mode": "pack",
+            "tail_dispatch_mode": "protected_drain",
+        },
+    ]
+
+    row = build_request_rows(events)[0]
+
+    assert row["backend"] == "backend-2"
+    assert row["tail_reserved_backend"] == "backend-0"
+    assert row["tail_idle_backfill"] is True
+    assert row["tail_gate_wait_s"] == 12.5
 
 
 def test_trace_report_excludes_warmups_by_default() -> None:
