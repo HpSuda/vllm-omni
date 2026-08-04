@@ -1,6 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+MODEL="Wan-AI/Wan2.2-T2V-A14B-Diffusers"
+LOCAL_MODEL="/root/.cache/modelscope/hub/models/Wan-AI/Wan2___2-T2V-A14B-Diffusers"
+if [[ -d "${LOCAL_MODEL}" ]]; then
+  MODEL="${LOCAL_MODEL}"
+fi
+
 rm -rf /tmp/wan22_super_p95_beam_backfill
 mkdir -p /tmp/wan22_super_p95_beam_backfill/trace
 
@@ -10,7 +16,7 @@ python3 benchmarks/diffusion/wan22_super_p95_dispatcher.py \
   --port 8080 \
   --num-servers 8 \
   --device-ids '0;1;2;3;4;5;6;7' \
-  --model Wan-AI/Wan2.2-T2V-A14B-Diffusers \
+  --model "${MODEL}" \
   --backend-start-port 8091 \
   --backend-hardware-profiles 910B3 \
   --wan22-estimator-profile 8xusp1_inferred \

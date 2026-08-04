@@ -353,12 +353,11 @@ class ManagedBackendLauncher:
             log_path,
             shlex.join(cmd),
         )
-        shell_cmd = f"{shlex.join(cmd)} >> {shlex.quote(str(log_path))} 2>&1"
         process = subprocess.Popen(
-            ["/bin/bash", "-lc", shell_cmd],
+            cmd,
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
             text=True,
         )
         return ManagedBackendProcess(spec=spec, process=process, log_file=log_file)

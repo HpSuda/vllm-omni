@@ -49,6 +49,55 @@ def test_managed_launcher_refuses_to_reuse_occupied_backend_ports(tmp_path, monk
     assert not log_dir.exists()
 
 
+def test_managed_launcher_starts_backend_without_intermediate_shell(tmp_path, monkeypatch) -> None:
+    spec = dispatcher_module.ManagedBackendSpec(
+        device_id="0",
+        port=8091,
+        base_url="http://127.0.0.1:8091",
+        hardware_profile="910B3",
+    )
+    launcher = dispatcher_module.ManagedBackendLauncher(
+        specs=[spec],
+        model="local-model",
+        backend_args=["--omni"],
+        backend_env={},
+        backend_scheduler="super_p95_step",
+        device_env_var="ASCEND_RT_VISIBLE_DEVICES",
+        health_timeout_s=30.0,
+        health_poll_interval_s=1.0,
+        log_dir=str(tmp_path),
+    )
+    captured = {}
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return FakeProcess()
+
+    monkeypatch.setattr(dispatcher_module.subprocess, "Popen", fake_popen)
+
+    managed = launcher._start_one(spec)
+    try:
+        assert captured["command"] == [
+            dispatcher_module.sys.executable,
+            "-m",
+            "vllm_omni.entrypoints.cli.main",
+            "serve",
+            "local-model",
+            "--port",
+            "8091",
+            "--omni",
+        ]
+        assert captured["kwargs"]["stdout"] is managed.log_file
+        assert captured["kwargs"]["stderr"] is dispatcher_module.subprocess.STDOUT
+    finally:
+        managed.log_file.close()
+
+
 def test_video_estimate_uses_seconds_and_fps_when_num_frames_missing() -> None:
     body = {
         "size": "854x480",
