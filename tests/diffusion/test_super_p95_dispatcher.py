@@ -124,6 +124,27 @@ def test_video_estimate_uses_seconds_and_fps_when_num_frames_missing() -> None:
     assert estimated == pytest.approx(expected)
 
 
+def test_chat_trace_fields_use_extra_body() -> None:
+    fields = dispatcher_module._trace_request_fields(
+        "/v1/chat/completions",
+        {
+            "extra_body": {
+                "width": 1536,
+                "height": 1536,
+                "num_inference_steps": 35,
+            }
+        },
+    )
+
+    assert fields == {
+        "width": 1536,
+        "height": 1536,
+        "num_frames": None,
+        "num_inference_steps": 35,
+        "fps": None,
+    }
+
+
 def test_video_estimate_defaults_to_24_fps_for_seconds_only_requests() -> None:
     body = {
         "size": "854x480",

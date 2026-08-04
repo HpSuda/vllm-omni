@@ -2075,16 +2075,22 @@ def _parse_float(value: Any) -> float | None:
 def _trace_request_fields(path: str, body: dict[str, Any]) -> dict[str, Any]:
     """Return scheduling-visible input fields for a trace event."""
 
-    width = _parse_int(body.get("width"))
-    height = _parse_int(body.get("height"))
-    size_width, size_height = _parse_size(body.get("size"))
+    visible_body = body
+    if path == "/v1/chat/completions":
+        extra_body = body.get("extra_body")
+        if isinstance(extra_body, dict):
+            visible_body = extra_body
+
+    width = _parse_int(visible_body.get("width"))
+    height = _parse_int(visible_body.get("height"))
+    size_width, size_height = _parse_size(visible_body.get("size"))
     width = width or size_width
     height = height or size_height
-    steps = _parse_int(body.get("num_inference_steps"))
-    fps = _parse_int(body.get("fps"))
-    frames = _parse_int(body.get("num_frames"))
+    steps = _parse_int(visible_body.get("num_inference_steps"))
+    fps = _parse_int(visible_body.get("fps"))
+    frames = _parse_int(visible_body.get("num_frames"))
     if frames is None:
-        seconds = _parse_int(body.get("seconds"))
+        seconds = _parse_int(visible_body.get("seconds"))
         if seconds is not None:
             frames = seconds * (fps or 24)
 

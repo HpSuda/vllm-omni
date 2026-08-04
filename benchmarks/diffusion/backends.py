@@ -65,6 +65,22 @@ async def async_request_chat_completions(
 ) -> RequestFuncOutput:
     output = RequestFuncOutput()
     output.start_time = time.perf_counter()
+    trace_node = input.trace_label or "client"
+    trace_input = {
+        "api_url": input.api_url,
+        "width": input.width,
+        "height": input.height,
+        "num_frames": input.num_frames,
+        "num_inference_steps": input.num_inference_steps,
+        "fps": input.fps,
+    }
+    write_trace_event(
+        input.trace_log_file,
+        "client_arrive",
+        node=trace_node,
+        request_id=input.request_id,
+        **trace_input,
+    )
 
     extra_body = dict(input.extra_body)
     if input.width and input.height:
@@ -87,6 +103,17 @@ async def async_request_chat_completions(
             if not os.path.exists(img_path):
                 output.error = f"Image file not found: {img_path}"
                 output.success = False
+                output.latency = time.perf_counter() - output.start_time
+                write_trace_event(
+                    input.trace_log_file,
+                    "client_finish",
+                    node=trace_node,
+                    request_id=input.request_id,
+                    success=False,
+                    latency_s=output.latency,
+                    error=output.error,
+                    **trace_input,
+                )
                 if pbar:
                     pbar.update(1)
                 return output
@@ -134,6 +161,16 @@ async def async_request_chat_completions(
         output.success = False
 
     output.latency = time.perf_counter() - output.start_time
+    write_trace_event(
+        input.trace_log_file,
+        "client_finish",
+        node=trace_node,
+        request_id=input.request_id,
+        success=output.success,
+        latency_s=output.latency,
+        error=output.error or None,
+        **trace_input,
+    )
 
     if output.success and input.slo_ms is not None:
         output.slo_achieved = (output.latency * 1000.0) <= float(input.slo_ms)
