@@ -14,6 +14,7 @@ from vllm_omni.diffusion.sched.interface import (
 from vllm_omni.diffusion.sched.request_scheduler import RequestScheduler
 from vllm_omni.diffusion.sched.sigma_schedule import BASE_SCHEDULE_KEY, DMD2SigmaSchedule
 from vllm_omni.diffusion.sched.step_scheduler import StepScheduler
+from vllm_omni.diffusion.sched.super_p95_step_scheduler import SuperP95StepScheduler
 
 Scheduler = RequestScheduler
 
@@ -31,5 +32,6 @@ __all__ = [
     "DMD2SigmaSchedule",
     "RequestScheduler",
     "StepScheduler",
+    "SuperP95StepScheduler",
     "Scheduler",
 ]

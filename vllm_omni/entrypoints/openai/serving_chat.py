@@ -28,6 +28,7 @@ from vllm.parser.utils import (
     count_chat_history_tool_calls as get_history_tool_calls_cnt,
 )
 
+from vllm_omni.diffusion.super_p95 import apply_super_p95_sampling_headers
 from vllm_omni.diffusion.utils.param_utils import apply_declared_extra_args
 from vllm_omni.entrypoints.async_omni import AsyncOmni
 from vllm_omni.entrypoints.openai.diffusion_request_utils import (
@@ -839,6 +840,8 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
                             quality=quality,
                         )
                         apply_normalized_diffusion_request_extra_args(sp, normalized_extra_args)
+                        if raw_request is not None:
+                            apply_super_p95_sampling_headers(sp, raw_request.headers)
                     else:
                         apply_declared_extra_args(
                             sp,
@@ -3350,7 +3353,9 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
     ):
         """Generate diffusion images and return raw images plus generation stats."""
         if request_id is None:
-            request_id = f"chatcmpl-{uuid.uuid4().hex[:16]}"
+            request_id = (
+                raw_request.headers.get("x-request-id") if raw_request is not None else None
+            ) or f"chatcmpl-{uuid.uuid4().hex[:16]}"
 
         prepared = self._prepare_diffusion_image_request(
             prompt=prompt,
@@ -3360,6 +3365,8 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
         if isinstance(prepared, ErrorResponse):
             return prepared
         engine, gen_prompt, gen_params, pil_images = prepared
+        if raw_request is not None:
+            apply_super_p95_sampling_headers(gen_params, raw_request.headers)
         if extra_body is None:
             extra_body = {}
         return_stage_metrics = self._truthy_extra_body_flag(extra_body, "return_stage_metrics")
@@ -3392,6 +3399,10 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
                     gen_params=gen_params,
                     tokenizer=tokenizer,
                 )
+                if raw_request is not None:
+                    for stage_config, sampling_params in zip(stage_configs, sampling_params_list):
+                        if get_stage_type(stage_config) == "diffusion":
+                            apply_super_p95_sampling_headers(sampling_params, raw_request.headers)
             else:
                 engine_prompt = gen_prompt
                 sampling_params_list = [gen_params]
@@ -3694,6 +3705,8 @@ class OmniOpenAIServingChat(OpenAIServingChat, AudioMixin):
             if true_cfg_scale is not None:
                 gen_params.true_cfg_scale = true_cfg_scale
             apply_normalized_diffusion_request_extra_args(gen_params, normalized_extra_args)
+            if raw_request is not None:
+                apply_super_p95_sampling_headers(gen_params, raw_request.headers)
             if num_frames is not None:
                 gen_params.num_frames = num_frames
             if guidance_scale_2 is not None:

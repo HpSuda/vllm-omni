@@ -56,8 +56,9 @@ from vllm_omni.diffusion.registry import (
     get_diffusion_pre_process_func,
 )
 from vllm_omni.diffusion.request import DUMMY_DIFFUSION_REQUEST_ID, OmniDiffusionRequest
-from vllm_omni.diffusion.sched import BaseScheduler, RequestScheduler, StepScheduler
+from vllm_omni.diffusion.sched import BaseScheduler, RequestScheduler, StepScheduler, SuperP95StepScheduler
 from vllm_omni.diffusion.sched.interface import DiffusionRequestStatus, DiffusionSchedulerOutput
+from vllm_omni.diffusion.sched.super_p95_step_scheduler import small_image_batch2_enabled
 from vllm_omni.diffusion.worker.utils import BaseRunnerOutput, BatchRunnerOutput, RunnerOutput
 from vllm_omni.errors import client_error_from_metadata, is_client_error_status
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams, OmniTextPrompt
@@ -304,6 +305,24 @@ class DiffusionEngine:
         self._post_process_accepts_sampling_params = _func_accepts_parameter(self.post_process_func, "sampling_params")
 
     def _resolve_execution_mode(self, od_config: OmniDiffusionConfig) -> DiffusionExecutionMode:
+        scheduler_name = os.environ.get("VLLM_OMNI_DIFFUSION_SCHEDULER", "").strip().lower()
+        if scheduler_name in {"super_p95_step", "step_baseline"}:
+            od_config.step_execution = True
+        if scheduler_name == "super_p95_step":
+            SuperP95StepScheduler.validate_kv_mode(od_config)
+            model_name = str(getattr(od_config, "model_class_name", "")).lower()
+            batch2 = "qwen" in model_name and small_image_batch2_enabled()
+            supported_capacity = 2 if batch2 else 1
+            if _max_num_seqs(od_config) > supported_capacity:
+                raise ValueError(
+                    f"super_p95_step supports max_num_seqs<={supported_capacity} for "
+                    f"{getattr(od_config, 'model_class_name', None)!r}. "
+                    "Only Qwen small-image batch2 supports two running requests; "
+                    "queue length is independent of max_num_seqs."
+                )
+            # Resolve worker capacity before buffer allocation and startup
+            # validation; the two-level policy never admits larger waves.
+            od_config.max_num_seqs = supported_capacity
         self.step_execution = bool(getattr(od_config, "step_execution", False))
         if od_config.streaming_output and not self.step_execution:
             logger.warning("streaming_output=True requires step_execution=True; enabling step execution.")
@@ -339,6 +358,8 @@ class DiffusionEngine:
     ) -> None:
         if scheduler is not None:
             self.scheduler = scheduler
+        elif os.environ.get("VLLM_OMNI_DIFFUSION_SCHEDULER", "").strip().lower() == "super_p95_step":
+            self.scheduler = SuperP95StepScheduler()
         elif self.execution_mode == DiffusionExecutionMode.STEP_BATCH:
             self.scheduler = StepScheduler()
         else:

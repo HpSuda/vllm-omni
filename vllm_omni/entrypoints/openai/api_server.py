@@ -2130,6 +2130,9 @@ async def generate_images(
             prompt["negative_prompt"] = request.negative_prompt
         gen_params = OmniDiffusionSamplingParams(num_outputs_per_prompt=request.n)
         extra_args = dict(request.extra_params or {})
+        from vllm_omni.diffusion.super_p95 import apply_super_p95_request_headers
+
+        apply_super_p95_request_headers(extra_args, raw_request.headers)
         if request.use_system_prompt is not None:
             extra_args["use_system_prompt"] = request.use_system_prompt
         if request.system_prompt is not None:
@@ -2449,6 +2452,9 @@ async def edit_images(
         _update_if_not_none(gen_params, "resolution", resolution)
 
         extra_args = dict(getattr(gen_params, "extra_args", {}) or {})
+        from vllm_omni.diffusion.super_p95 import apply_super_p95_request_headers
+
+        apply_super_p95_request_headers(extra_args, raw_request.headers)
         edit_extra_args = _build_hunyuan_edit_extra_args(
             bot_task=bot_task,
             sys_type=sys_type,

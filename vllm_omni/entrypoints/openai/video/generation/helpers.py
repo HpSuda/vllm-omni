@@ -976,6 +976,13 @@ async def _parse_video_form(
     }
     request_data = {k: v for k, v in request_data.items() if v is not None}
     request = VideoGenerationRequest(**request_data)
+    # The HTTP layer owns these fields; the model's public argument adapter
+    # must not interpret or reject the dispatcher's private scheduling metadata.
+    from vllm_omni.diffusion.super_p95 import apply_super_p95_request_headers
+
+    scheduling_args = dict(request.extra_params or {})
+    apply_super_p95_request_headers(scheduling_args, raw_request.headers)
+    request.extra_params = scheduling_args
 
     handler = Omnivideo(raw_request)
     if handler is None:
