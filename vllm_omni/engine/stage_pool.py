@@ -169,6 +169,7 @@ class StagePool:
         self._tail_aware_controller: TailAwareController | None = None
         self.admission_waiting_count = 0
         self.on_admission_waiting_changed: Callable[[], None] | None = None
+        self._tail_aware_model_class: str | None = None
 
     @property
     def tail_aware_scheduling_enabled(self) -> bool:
@@ -181,7 +182,7 @@ class StagePool:
         # Admission tasks include requests already submitting to a replica.
         return self._tail_aware_controller.config.max_pending_requests + len(self.available_replica_ids())
 
-    def configure_tail_aware_scheduling(self, settings: dict[str, Any]) -> None:
+    def configure_tail_aware_scheduling(self, settings: dict[str, Any], *, model_class_name: str) -> None:
         """Attach one admission controller to an already validated local pool."""
         from vllm_omni.scheduling.config import TailAwareSchedulingConfig
         from vllm_omni.scheduling.controller import TailAwareController
@@ -191,6 +192,7 @@ class StagePool:
         config = TailAwareSchedulingConfig.from_dict(settings)
         if not config.enabled:
             return
+        self._tail_aware_model_class = model_class_name
         self._tail_aware_controller = TailAwareController(self.available_replica_ids(), config)
 
     def close_tail_aware_scheduling(self) -> None:
@@ -1104,7 +1106,7 @@ class StagePool:
         submit_kwargs: dict[str, Any],
     ) -> int:
         controller = self._tail_aware_controller
-        assert controller is not None
+        assert controller is not None and self._tail_aware_model_class is not None
         client = None
         try:
             admission_start = _time.perf_counter()
@@ -1112,7 +1114,7 @@ class StagePool:
             if self.on_admission_waiting_changed is not None:
                 self.on_admission_waiting_changed()
             try:
-                decision = await controller.acquire(request_id)
+                decision = await controller.acquire(request_id, params, model_class_name=self._tail_aware_model_class)
             finally:
                 self.admission_waiting_count -= 1
                 if self.on_admission_waiting_changed is not None:
@@ -1336,7 +1338,10 @@ class StagePool:
             return None
         output = cast(StagePoolDiffusionClient, raw_client).get_diffusion_output_nowait()
         if output is not None and self._tail_aware_controller is not None and output.finished:
-            self._tail_aware_controller.complete(output.request_id)
+            self._tail_aware_controller.complete(
+                output.request_id,
+                success=not (output.error or getattr(output, "aborted", False)),
+            )
         return output
 
     # ---- Stage-local control plane ----

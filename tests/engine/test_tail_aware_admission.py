@@ -73,7 +73,10 @@ async def runtime():
     def create(replicas=1, limit=1):
         clients = [Backend() for _ in range(replicas)]
         pool = StagePool(0, clients)
-        pool.configure_tail_aware_scheduling({"enabled": True, "max_pending_requests": limit})
+        pool.configure_tail_aware_scheduling(
+            {"enabled": True, "max_pending_requests": limit, "hardware_profile": "910B2"},
+            model_class_name="QwenImagePipeline",
+        )
         stage_waiting = {}
         orch = Orchestrator(
             request_async_queue=asyncio.Queue(),
