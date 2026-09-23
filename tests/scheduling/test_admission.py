@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM-Omni project
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,7 +13,8 @@ pytestmark = [pytest.mark.cpu, pytest.mark.core_model, pytest.mark.diffusion, py
 
 
 def _acquire(policy, request_id):
-    return policy.acquire(request_id)
+    params = SimpleNamespace(width=512, height=512, num_inference_steps=20)
+    return policy.acquire(request_id, params, model_class_name="QwenImagePipeline")
 
 
 async def test_fifo_bounded_single_slot_replicas():

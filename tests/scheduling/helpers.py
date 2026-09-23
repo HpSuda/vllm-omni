@@ -13,6 +13,7 @@ from vllm_omni.scheduling.controller import TailAwareController
 @asynccontextmanager
 async def controller_context(replica_ids, **options):
     """Own a controller and the pending tasks started by one test."""
+    options.setdefault("hardware_profile", "910B2")
     policy = TailAwareController(list(replica_ids), TailAwareSchedulingConfig(enabled=True, **options))
     pending = {}
     try:

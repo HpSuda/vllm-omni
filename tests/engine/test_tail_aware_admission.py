@@ -78,8 +78,8 @@ async def runtime():
     def create(replicas=1, limit=1):
         clients = [Backend() for _ in range(replicas)]
         pool = StagePool(0, clients)
-        config = TailAwareSchedulingConfig(enabled=True, max_pending_requests=limit)
-        pool.configure_tail_aware_scheduling(config)
+        config = TailAwareSchedulingConfig(enabled=True, max_pending_requests=limit, hardware_profile="910B2")
+        pool.configure_tail_aware_scheduling(config, model_class_name="QwenImagePipeline")
         assert pool._tail_aware_controller.config is config
         stage_waiting = {}
         orch = Orchestrator(
