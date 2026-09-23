@@ -351,6 +351,7 @@ class OrchestratorBase:
         self.request_states: dict[str, OrchestratorRequestState] = {}
         # Strong refs for in-flight releases; the loop only weak-refs tasks, so dropping these risks mid-flight GC.
         self._transfer_release_tasks: set[asyncio.Task] = set()
+        self._tail_aware_admission_tasks: dict[str, asyncio.Task[None]] = {}
         self._init_metrics_state(
             stage_pools,
             running_counter,
@@ -499,6 +500,13 @@ class OrchestratorBase:
                 await asyncio.gather(*tasks, return_exceptions=True)
             except Exception:
                 pass
+            admission_tasks = list(self._tail_aware_admission_tasks.values())
+            for task in admission_tasks:
+                task.cancel()
+            await asyncio.gather(*admission_tasks, return_exceptions=True)
+            for pool in self.stage_pools:
+                if pool.tail_aware_scheduling_enabled:
+                    pool.close_tail_aware_scheduling()
             await self._shutdown_extensions()
 
             if self._membership is not None:
@@ -519,8 +527,18 @@ class OrchestratorBase:
 
     async def _request_handler(self) -> None:
         """Read messages from the main thread via request_async_queue."""
+        tail_aware = any(pool.tail_aware_scheduling_enabled for pool in self.stage_pools)
+        admission_burst = 0
         while True:
             msg = await self.request_async_queue.get()
+            if tail_aware:
+                admission_burst += 1
+                if admission_burst >= 32:
+                    # A nonempty input queue can complete get() synchronously.
+                    # Give admission/output tasks time even under sustained
+                    # arrivals or repeated queue-full responses.
+                    await asyncio.sleep(0)
+                    admission_burst = 0
             msg_type = msg.type
 
             if await self._dispatch_message(msg):
@@ -1624,6 +1642,36 @@ class OrchestratorBase:
 
     # ---- Shared helpers ----
 
+    async def _run_tail_aware_admission(
+        self, request_id: str, req_state: OrchestratorRequestState, prompt: Any, prompt_text: str | None
+    ) -> None:
+        """Wait for capacity without blocking new arrivals or abort messages."""
+        from vllm_omni.scheduling.controller import TailAwareQueueFullError
+
+        try:
+            await self._dispatch_or_fail_request(
+                lambda: self.stage_pools[0].submit_initial(request_id, req_state, prompt, prompt_text=prompt_text),
+                req_id=request_id,
+                stage_id=0,
+                operation="tail_aware_admission",
+            )
+        except TailAwareQueueFullError as exc:
+            await self._fail_request_client_error(
+                request_id, 0, str(exc), status_code=HTTPStatus.TOO_MANY_REQUESTS.value
+            )
+        except (ValueError, TypeError) as exc:
+            await self._fail_request_client_error(request_id, 0, str(exc))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("[Orchestrator] Admission failed for req=%s", request_id)
+            await self._fail_request_client_error(
+                request_id, 0, str(exc), status_code=HTTPStatus.SERVICE_UNAVAILABLE.value
+            )
+        finally:
+            if self._tail_aware_admission_tasks.get(request_id) is asyncio.current_task():
+                self._tail_aware_admission_tasks.pop(request_id, None)
+
     async def _cleanup_request_ids(
         self,
         request_ids: list[str],
@@ -1674,6 +1722,16 @@ class OrchestratorBase:
                 if cid not in batch:
                     batch.add(cid)
                     cleanup_ids.append(cid)
+        admission_tasks = []
+        for rid in cleanup_ids:
+            task = getattr(self, "_tail_aware_admission_tasks", {}).get(rid)
+            if task is not None and task is not asyncio.current_task():
+                task.cancel()
+                admission_tasks.append(task)
+        if admission_tasks:
+            # Wait for an in-flight backend submission to abort before releasing
+            # its reservation. Otherwise a cancelled request can be resurrected.
+            await asyncio.gather(*admission_tasks, return_exceptions=True)
         abort_outputs: list[OutputMessage] = []
         if abort:
             abort_outputs = await self._abort_request_ids(cleanup_ids)
@@ -2986,6 +3044,21 @@ class Orchestrator(OrchestratorBase):
                     "for that stage",
                 )
                 return
+        pool = self.stage_pools[stage_id]
+        if (
+            pool.tail_aware_scheduling_enabled
+            and len(self._tail_aware_admission_tasks) >= pool.tail_aware_admission_limit
+        ):
+            # Bound tasks before they have a chance to run acquire(). A burst
+            # already present on the input queue can otherwise register an
+            # unbounded number of tasks before the controller runs at all.
+            await self._fail_request_client_error(
+                request_id,
+                stage_id,
+                "tail-aware pending request limit reached",
+                status_code=HTTPStatus.TOO_MANY_REQUESTS.value,
+            )
+            return
 
         logger.debug(
             "[Orchestrator] _handle_add_request: stage=%s req=%s "
@@ -3020,6 +3093,12 @@ class Orchestrator(OrchestratorBase):
         preprocess_ms = msg.preprocess_ms
         if preprocess_ms > 0:
             req_state.pipeline_timings["preprocess_ms"] = preprocess_ms
+        if pool.tail_aware_scheduling_enabled:
+            self._tail_aware_admission_tasks[request_id] = asyncio.create_task(
+                self._run_tail_aware_admission(request_id, req_state, prompt, msg.output_prompt_text),
+                name=f"tail-aware-admission-{request_id}",
+            )
+            return
         if not await self._dispatch_or_fail_request(
             lambda: self.stage_pools[stage_id].submit_initial(
                 request_id,
