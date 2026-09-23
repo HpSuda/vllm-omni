@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from vllm.logger import init_logger
 from vllm.v1.engine import EngineCoreOutputs
+from vllm.v1.engine.exceptions import EngineDeadError
 from vllm.v1.metrics.stats import IterationStats
 
 from vllm_omni.data_entry_keys import flatten_payload
@@ -45,6 +46,7 @@ from vllm_omni.metrics.utils import (
 
 if TYPE_CHECKING:
     from vllm_omni.engine.orchestrator import OrchestratorRequestState
+    from vllm_omni.scheduling.controller import TailAwareController
 
 logger = init_logger(__name__)
 
@@ -155,6 +157,31 @@ class StagePool:
         # Kept separate from the legacy ``_request_bindings`` so the two
         # binding shapes do not collide.
         self._affinity: dict[str, str] = {}
+        self._tail_aware_controller: TailAwareController | None = None
+
+    @property
+    def tail_aware_scheduling_enabled(self) -> bool:
+        return self._tail_aware_controller is not None
+
+    @property
+    def tail_aware_admission_limit(self) -> int:
+        return self._tail_aware_controller.config.max_pending_requests if self._tail_aware_controller else 0
+
+    def configure_tail_aware_scheduling(self, settings: dict[str, Any]) -> None:
+        """Attach one admission controller to an already validated local pool."""
+        from vllm_omni.scheduling.config import TailAwareSchedulingConfig
+        from vllm_omni.scheduling.controller import TailAwareController
+
+        if self.stage_type != "diffusion" or self.is_distributed:
+            raise ValueError("Tail-aware scheduling requires a local diffusion pool")
+        config = TailAwareSchedulingConfig.from_dict(settings)
+        if not config.enabled:
+            return
+        self._tail_aware_controller = TailAwareController(self.available_replica_ids(), config)
+
+    def close_tail_aware_scheduling(self) -> None:
+        if self._tail_aware_controller is not None:
+            self._tail_aware_controller.close()
 
     # ---- Stage-level properties ----
 
@@ -516,6 +543,10 @@ class StagePool:
 
     def release_binding(self, request_id: str) -> None:
         """Drop the route binding for *request_id* in this stage."""
+        if self._tail_aware_controller is not None:
+            # Terminal output already completed successful requests. Cleanup
+            # covers admission cancellation and every remaining failure path.
+            self._tail_aware_controller.cancel(request_id)
         self._request_bindings.pop(request_id, None)
         self._affinity.pop(request_id, None)
         self._output_timestamps_by_request.pop(str(request_id), None)
@@ -549,6 +580,8 @@ class StagePool:
         """Evict a failed replica from admission and release its bindings."""
         if 0 <= replica_id < self.num_replicas:
             self._unavailable_replicas.add(replica_id)
+        if self._tail_aware_controller is not None:
+            self._tail_aware_controller.remove_replica(replica_id)
         return self.release_replica_bindings(replica_id)
 
     def is_replica_available(self, replica_id: int) -> bool:
@@ -998,6 +1031,8 @@ class StagePool:
                     "Diffusion list-prompt batch requests are no longer supported. "
                     "Submit multiple independent requests to use scheduler batching."
                 )
+            if self._tail_aware_controller is not None:
+                return await self._submit_tail_aware(request_id, request, params, submit_kwargs)
             replica_id = await self._pick_or_select(
                 request_id,
                 affinity_request_id=affinity_request_id,
@@ -1042,6 +1077,36 @@ class StagePool:
                     )
             raise
         return replica_id
+
+    async def _submit_tail_aware(
+        self, request_id: str, request: Any, params: Any, submit_kwargs: dict[str, Any]
+    ) -> int:
+        controller = self._tail_aware_controller
+        assert controller is not None
+        client = None
+        try:
+            decision = await controller.acquire(request_id)
+            replica_id = decision.replica_id
+            if not self.is_replica_available(replica_id):
+                raise StageUnavailableError(f"stage {self.stage_id} replica {replica_id} is unavailable")
+            self._request_bindings[request_id] = replica_id
+            client = self._diffusion_client(replica_id)
+            await client.add_request_async(request_id, request, params, **submit_kwargs)
+            return replica_id
+        except BaseException as exc:
+            # Submission may have reached the worker before cancellation.
+            # Abort before making the reserved capacity available again.
+            if client is not None:
+                try:
+                    await asyncio.shield(client.abort_requests_async([request_id]))
+                except Exception:
+                    logger.warning("Failed to abort interrupted diffusion submission %s", request_id, exc_info=True)
+            controller.cancel(request_id)
+            # The orchestrator's EngineDeadError handler needs this binding to
+            # evict the failed replica and fail its other in-flight requests.
+            if not isinstance(exc, EngineDeadError):
+                self._request_bindings.pop(request_id, None)
+            raise
 
     async def submit_update(
         self,
@@ -1229,7 +1294,10 @@ class StagePool:
         raw_client = self.clients[replica_id]
         if raw_client is None:
             return None
-        return cast(StagePoolDiffusionClient, raw_client).get_diffusion_output_nowait()
+        output = cast(StagePoolDiffusionClient, raw_client).get_diffusion_output_nowait()
+        if output is not None and self._tail_aware_controller is not None and output.finished:
+            self._tail_aware_controller.complete(output.request_id)
+        return output
 
     # ---- Stage-local control plane ----
 
@@ -1352,6 +1420,8 @@ class StagePool:
 
     def shutdown_replica(self, replica_id: int) -> None:
         """Shutdown one backend handle in this stage pool."""
+        if self._tail_aware_controller is not None:
+            self._tail_aware_controller.remove_replica(replica_id)
         if replica_id >= len(self.clients):
             return
         client = self.clients[replica_id]
