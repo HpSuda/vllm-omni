@@ -568,6 +568,8 @@ class DeployConfig:
     """
 
     async_chunk: bool = True
+    enable_tail_aware_scheduling: bool | None = None
+    tail_aware_scheduling_config: dict[str, Any] | None = None
     session_mode: str = "turn"
     model_runner: Literal["v1", "v2"] = "v1"
     # Stage-1 active stream slots; 0 preserves legacy all-stream cycling.
@@ -796,6 +798,8 @@ def load_deploy_config(path: str | Path) -> DeployConfig:
 
     kwargs: dict[str, Any] = {
         "async_chunk": raw_dict.get("async_chunk", True),
+        "enable_tail_aware_scheduling": raw_dict.get("enable_tail_aware_scheduling"),
+        "tail_aware_scheduling_config": raw_dict.get("tail_aware_scheduling_config"),
         "session_mode": raw_dict.get("session_mode", "turn"),
         "model_runner": model_runner,
         "active_stream_window": int(raw_dict.get("active_stream_window", 0) or 0),
