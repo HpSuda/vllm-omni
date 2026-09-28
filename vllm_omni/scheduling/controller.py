@@ -85,6 +85,9 @@ class TailAwareController:
             raise ValueError("request_id must be a nonempty string")
         if request_id in self._requests:
             raise ValueError(f"Duplicate in-flight request_id: {request_id!r}")
+        # A deferred drain may still hold requests that can use idle slots.
+        # Reserve those slots before applying the waiting-only quota.
+        self._drain()
         if self.pending_count >= self.config.max_pending_requests:
             raise TailAwareQueueFullError("tail-aware pending request limit reached")
         request = _Request(request_id=request_id, future=loop.create_future())
@@ -172,6 +175,8 @@ class TailAwareController:
         self._drain_handle = self._loop.call_soon(self._drain)
 
     def _drain(self) -> None:
+        if self._drain_handle is not None:
+            self._drain_handle.cancel()
         self._drain_handle = None
         if self._closed:
             return

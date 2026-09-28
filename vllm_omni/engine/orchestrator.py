@@ -210,6 +210,8 @@ class OrchestratorRequestState:
 
     # Wall-clock timestamp when the client-facing engine request was accepted.
     request_timestamp: float = 0.0
+    # Monotonic frontend enqueue time, retained through central admission.
+    enqueue_ts: float = 0.0
 
     # Metrics: timestamp when request was submitted to each stage.
     stage_submit_ts: dict[int, float] = field(default_factory=dict)
@@ -359,6 +361,10 @@ class OrchestratorBase:
             engines_waiting_counter=engines_waiting_counter,
             log_stats=log_stats,
         )
+
+        for pool in stage_pools:
+            if pool.tail_aware_scheduling_enabled:
+                pool.on_admission_waiting_changed = self._sync_engines_waiting_counter
 
         self._cfg_tracker = CfgCompanionTracker()
         self._stage_input_processors: dict[int, Any] = {}
@@ -1417,11 +1423,15 @@ class OrchestratorBase:
         self._sync_engines_waiting_counter()
 
     def _sync_engines_waiting_counter(self) -> None:
-        """Aggregate per-replica waiting into the counter shared with the
-        frontend so engine-queued requests show as waiting, not running."""
+        """Include central admission and replica queues in frontend waiting."""
         counter = self._engines_waiting_counter
         if counter is not None:
-            counter.value = sum(self._stage_replica_waiting.values())
+            counter.value = sum(self._stage_replica_waiting.values()) + sum(
+                pool.admission_waiting_count for pool in self.stage_pools
+            )
+        for pool in self.stage_pools:
+            if pool.tail_aware_scheduling_enabled:
+                self._set_stage_waiting_total(pool.stage_id)
 
     def _set_stage_waiting_total(self, stage_id: int) -> None:
         if self._prom_metrics is None:
@@ -1431,6 +1441,7 @@ class OrchestratorBase:
             for (snapshot_stage_id, _), n_waiting in self._stage_replica_waiting.items()
             if snapshot_stage_id == stage_id
         )
+        total += self.stage_pools[stage_id].admission_waiting_count
         self._prom_metrics.set_stage_waiting_requests(stage_id, total)
 
     async def _handle_dead_replica(self, stage_id: int, replica_id: int, error: EngineDeadError) -> None:
@@ -3049,7 +3060,7 @@ class Orchestrator(OrchestratorBase):
             pool.tail_aware_scheduling_enabled
             and len(self._tail_aware_admission_tasks) >= pool.tail_aware_admission_limit
         ):
-            # Bound tasks before they have a chance to run acquire(). A burst
+            # Bound waiting plus reserved/submitting tasks before acquire(). A burst
             # already present on the input queue can otherwise register an
             # unbounded number of tasks before the controller runs at all.
             await self._fail_request_client_error(
@@ -3079,6 +3090,7 @@ class Orchestrator(OrchestratorBase):
             final_stage_id=final_stage_id,
             final_output_stage_ids=final_output_stage_ids,
             request_timestamp=float(msg.request_timestamp or _time.time()),
+            enqueue_ts=msg.enqueue_ts,
             mm_features=getattr(prompt, "mm_features", None),
             request_artifact_dirs=set(msg.request_artifact_dirs or ()),
         )

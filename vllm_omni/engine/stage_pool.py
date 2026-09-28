@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time as _time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -167,6 +167,8 @@ class StagePool:
         # binding shapes do not collide.
         self._affinity: dict[str, str] = {}
         self._tail_aware_controller: TailAwareController | None = None
+        self.admission_waiting_count = 0
+        self.on_admission_waiting_changed: Callable[[], None] | None = None
 
     @property
     def tail_aware_scheduling_enabled(self) -> bool:
@@ -174,7 +176,10 @@ class StagePool:
 
     @property
     def tail_aware_admission_limit(self) -> int:
-        return self._tail_aware_controller.config.max_pending_requests if self._tail_aware_controller else 0
+        if self._tail_aware_controller is None:
+            return 0
+        # Admission tasks include requests already submitting to a replica.
+        return self._tail_aware_controller.config.max_pending_requests + len(self.available_replica_ids())
 
     def configure_tail_aware_scheduling(self, settings: dict[str, Any]) -> None:
         """Attach one admission controller to an already validated local pool."""
@@ -1044,7 +1049,7 @@ class StagePool:
             if payload_sender_info is not None:
                 submit_kwargs.setdefault("payload_sender_info", payload_sender_info)
             if self._tail_aware_controller is not None:
-                return await self._submit_tail_aware(request_id, request, params, submit_kwargs)
+                return await self._submit_tail_aware(request_id, req_state, request, params, submit_kwargs)
             replica_id = await self._pick_or_select(
                 request_id,
                 affinity_request_id=affinity_request_id,
@@ -1091,13 +1096,31 @@ class StagePool:
         return replica_id
 
     async def _submit_tail_aware(
-        self, request_id: str, request: Any, params: Any, submit_kwargs: dict[str, Any]
+        self,
+        request_id: str,
+        req_state: OrchestratorRequestState,
+        request: Any,
+        params: Any,
+        submit_kwargs: dict[str, Any],
     ) -> int:
         controller = self._tail_aware_controller
         assert controller is not None
         client = None
         try:
-            decision = await controller.acquire(request_id)
+            admission_start = _time.perf_counter()
+            self.admission_waiting_count += 1
+            if self.on_admission_waiting_changed is not None:
+                self.on_admission_waiting_changed()
+            try:
+                decision = await controller.acquire(request_id)
+            finally:
+                self.admission_waiting_count -= 1
+                if self.on_admission_waiting_changed is not None:
+                    self.on_admission_waiting_changed()
+            req_state.pipeline_timings["queue_wait_ms"] = (
+                _time.perf_counter() - (req_state.enqueue_ts or admission_start)
+            ) * 1000.0
+            req_state.stage_submit_ts[self.stage_id] = _time.time()
             replica_id = decision.replica_id
             if not self.is_replica_available(replica_id):
                 raise StageUnavailableError(f"stage {self.stage_id} replica {replica_id} is unavailable")
@@ -1105,7 +1128,13 @@ class StagePool:
             client = self._diffusion_client(replica_id)
             await client.add_request_async(request_id, request, params, **submit_kwargs)
             return replica_id
-        except BaseException as exc:
+        except EngineDeadError:
+            # Exclude the dead slot before any cleanup can yield and drain
+            # waiters. Keep the binding for orchestrator failure attribution.
+            self._unavailable_replicas.add(replica_id)
+            controller.remove_replica(replica_id)
+            raise
+        except BaseException:
             # Submission may have reached the worker before cancellation.
             # Abort before making the reserved capacity available again.
             if client is not None:
@@ -1114,10 +1143,7 @@ class StagePool:
                 except Exception:
                     logger.warning("Failed to abort interrupted diffusion submission %s", request_id, exc_info=True)
             controller.cancel(request_id)
-            # The orchestrator's EngineDeadError handler needs this binding to
-            # evict the failed replica and fail its other in-flight requests.
-            if not isinstance(exc, EngineDeadError):
-                self._request_bindings.pop(request_id, None)
+            self._request_bindings.pop(request_id, None)
             raise
 
     async def submit_update(
