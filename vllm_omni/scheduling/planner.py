@@ -17,8 +17,6 @@ from dataclasses import dataclass
 
 from .config import TailAwareSchedulingConfig
 
-_DEFERRED_LATENCY_PLACEHOLDER_S = 1.0e12
-
 
 @dataclass(frozen=True)
 class ReleaseCalendarRequest:
@@ -154,9 +152,7 @@ def _greedy_complete(
         mutable_slots[backend_index] = finish_s - now_s
         mutable_projected.append(finish_s - selected.arrival_time_s)
         mutable_remaining.remove(selected)
-    finite = [value for value in mutable_projected if value < _DEFERRED_LATENCY_PLACEHOLDER_S]
-    mean_s = statistics.fmean(finite) if finite else math.inf
-    return percentile_type7(mutable_projected, 0.95), mean_s
+    return percentile_type7(mutable_projected, 0.95), statistics.fmean(mutable_projected)
 
 
 def _validated_release_calendar(
@@ -195,10 +191,13 @@ def plan_release_calendar(
     first_backend_index: int,
     completed_latencies_s: Iterable[float],
     active_projected_latencies_s: Iterable[float],
-    deferred_request_count: int,
     config: TailAwareSchedulingConfig,
 ) -> str:
-    """Plan several visible release decisions, then execute only the first."""
+    """Minimize Normal-request P95, then mean; execute only the first decision.
+
+    Latency samples must describe Normal requests only. Active Tails still
+    occupy lanes in the release calendar, but never enter the objective.
+    """
 
     if not pending:
         raise ValueError("pending cannot be empty")
@@ -212,7 +211,6 @@ def plan_release_calendar(
         for value in active_projected_latencies_s
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0.0
     ]
-    deferred_count = max(int(deferred_request_count), 0)
     if not 0 <= first_backend_index < (len(release_calendar_s) if release_calendar_s is not None else 0):
         # The request estimates are still sufficient for a stable Queue-Band
         # fallback when callers pass a missing release calendar.
@@ -229,13 +227,7 @@ def plan_release_calendar(
             pending, dispatch_s=now_s, backend_index=first_backend_index, config=config
         ).request_id
 
-    initial_projected = tuple(
-        [
-            *completed,
-            *active,
-            *([_DEFERRED_LATENCY_PLACEHOLDER_S] * deferred_count),
-        ]
-    )
+    initial_projected = (*completed, *active)
     base = _queue_band_select(
         pending,
         dispatch_s=now_s + slots[first_backend_index],

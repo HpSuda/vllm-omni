@@ -159,7 +159,7 @@ class TailAwareController:
             return
         now_s = time.perf_counter()
         replica = self._replicas.get(request.decision.replica_id)
-        if success:
+        if success and not request.deferred:
             self._completed_latency_history_s.append(max(now_s - request.arrival_s, 0.0))
         if success and replica is not None and request.bound_s is not None:
             elapsed = max(now_s - request.bound_s, 0.0)
@@ -303,10 +303,10 @@ class TailAwareController:
         request.future.set_result(request.decision)
 
     def _select_request(self, replica_id: int, now_s: float) -> _Request:
-        replicas = list(self._replicas.values())
+        replicas: list[_Replica] = []
         releases: list[float] = []
         active_latencies: list[float] = []
-        for replica in replicas:
+        for replica in self._replicas.values():
             release_s = 0.0
             request = replica.active
             if request is not None:
@@ -314,6 +314,11 @@ class TailAwareController:
                 release_s = max(request.bound_s + request.estimated_service_s - now_s, 0.0)
                 if not request.deferred:
                     active_latencies.append(max(now_s + release_s - request.arrival_s, 0.0))
+                # An expired estimate gives no usable release forecast. Keep
+                # this occupied lane out of every rollout until it completes.
+                if release_s == 0.0:
+                    continue
+            replicas.append(replica)
             releases.append(release_s)
         first_index = next(index for index, replica in enumerate(replicas) if replica.replica_id == replica_id)
         selected_id = plan_release_calendar(
@@ -331,7 +336,6 @@ class TailAwareController:
             first_backend_index=first_index,
             completed_latencies_s=self._completed_latency_history_s,
             active_projected_latencies_s=active_latencies,
-            deferred_request_count=sum(request.deferred for request in self._requests.values()),
             config=self.config,
         )
         return self._requests[selected_id]
