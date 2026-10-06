@@ -47,6 +47,8 @@ async def _queued_window(monkeypatch, **options):
         quota_every=2,
         quota_amount=0,
         threshold_ratio=1.0,
+        band_min_pending=2,
+        band_max_pending=8,
         beam_min_pending=2,
         beam_max_pending=8,
         beam_horizon=2,
@@ -108,15 +110,15 @@ async def test_real_estimates_classify_gate_and_pack_tails(monkeypatch):
         assert pending["tail-0"].result().is_tail
 
 
-@pytest.mark.parametrize("tail,expected", [(False, "old-short"), (True, "later-short")])
-async def test_window_changes_immediate_risk_choice(monkeypatch, tail, expected):
+@pytest.mark.parametrize("tail", [False, True])
+async def test_window_changes_immediate_risk_choice(monkeypatch, tail):
     async with _queued_window(monkeypatch, quota_amount=int(tail)) as (policy, _now, pending):
         policy.complete("blocker-0")
         await _flush()
-        # Immediate risk chooses long: 50 + .85*100 = 135. Window planning
-        # considers the other occupied replica and whether its request is Tail.
-        assert _dispatched(pending) == {expected: 0}
-        assert not pending[expected].result().is_tail
+        # Immediate risk chooses long: 50 + .625*100 = 112.5. Window planning
+        # considers the other occupied replica, including active Tail work.
+        assert _dispatched(pending) == {"old-short": 0}
+        assert not pending["old-short"].result().is_tail
         assert policy.active_count == 2 and policy.pending_count == 3
 
 
@@ -155,3 +157,64 @@ async def test_outside_window_falls_back_to_risk_order(monkeypatch, window):
         assert _dispatched(pending) == {"long": 0}
         assert not pending["long"].result().is_tail
         assert policy.active_count == 2 and policy.pending_count == 3
+
+
+@pytest.mark.parametrize("replica_ids", [(0, 1), (1, 0)])
+async def test_overdue_replica_is_excluded_until_completion(monkeypatch, replica_ids):
+    now = [0.0]
+    monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
+    monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
+    async with _policy(
+        quota_amount=0,
+        band_min_pending=2,
+        band_max_pending=8,
+        beam_min_pending=2,
+        beam_max_pending=8,
+        beam_horizon=4,
+        beam_width=8,
+        beam_branch_width=4,
+        beam_risk_slack_s=1000.0,
+    ) as (policy, pending):
+        # Reverse which physical lane is overdue to exercise calendar index remapping.
+        services = dict(zip(replica_ids, (1.0, 10.0)))
+        for replica in (0, 1):
+            assert (
+                await policy.acquire(f"blocker-{replica}", services[replica], "QwenImagePipeline")
+            ).replica_id == replica
+        for index, (arrival, service) in enumerate(((0, 160), (50, 40), (90, 2), (90, 5))):
+            now[0] = arrival
+            pending[f"r{index}"] = asyncio.create_task(policy.acquire(f"r{index}", service, "QwenImagePipeline"))
+            await _flush()
+        now[0] = 100.0
+        policy.complete(f"blocker-{replica_ids[0]}")
+        await _flush()
+        # Treating the overdue lane as idle incorrectly chooses r0 here.
+        assert _dispatched(pending) == {"r2": replica_ids[0]}
+        assert policy.active_count == 2
+        policy.complete(f"blocker-{replica_ids[1]}")
+        await _flush()
+        assert len(_dispatched(pending)) == 2
+        assert set(_dispatched(pending).values()) == {0, 1}
+
+
+@pytest.mark.parametrize("waiting_tails", [0, 1, 3])
+async def test_tail_count_does_not_replace_normal_p95_objective(monkeypatch, waiting_tails):
+    async with _queued_window(monkeypatch, quota_every=1, quota_amount=1) as (policy, _now, pending):
+        assert policy._requests["blocker-1"].deferred
+        for index in range(waiting_tails):
+            name = f"tail-{index}"
+            pending[name] = asyncio.create_task(policy.acquire(name, 200.0, "QwenImagePipeline"))
+        await _flush()
+        assert len(policy._pending_tails) == waiting_tails
+        policy.complete("blocker-0")
+        await _flush()
+        # Normal P95 favors old-short; Tail sentinels instead favor later-short's
+        # lower mean. Neither active nor waiting Tails belong in this objective.
+        assert _dispatched(pending) == {"old-short": 0}
+        assert policy._replicas[1].active.request_id == "blocker-1"
+        history = tuple(policy._completed_latency_history_s)
+        assert history == (50.0,)
+        policy.complete("blocker-1")
+        assert tuple(policy._completed_latency_history_s) == history
+        await _flush()
+        assert policy.active_count == 2
