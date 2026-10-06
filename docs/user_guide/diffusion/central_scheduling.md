@@ -44,9 +44,13 @@ priority; waiting Tail requests concentrate on selected replicas, then backfill
 idle slots newest-first. Sustained Normal arrivals can delay waiting Tail work.
 
 Within `beam_min_pending`–`beam_max_pending` (10–27), the planner uses pending
-requests and estimated replica release times to choose the next Normal request.
+Normal requests and estimated replica release times to choose the next request.
+It minimizes Normal-request P95, with mean latency as a tie-breaker, using
+recent completed Normal latencies and projected Normal latencies. Tail requests
+affect replica availability but do not enter this latency objective.
 Arrivals and completions update subsequent choices; outside this range the
 scheduler uses risk ordering. `beam_horizon` (4), `beam_width` (16) and
 `beam_branch_width` (6) bound the search. Forecast expiry never frees a running
-slot: only actual completion, cancellation or failure does. No step execution
+slot: overdue occupied replicas are excluded from the rollout until released
+by actual completion, cancellation or failure. No step execution
 or preemption is required.
