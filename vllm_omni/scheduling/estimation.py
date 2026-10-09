@@ -17,6 +17,7 @@ _QWEN_ANCHORS = {
     "910B2": {(512, 512): (20, 8.60), (768, 768): (20, 8.94), (1024, 1024): (25, 14.22), (1536, 1536): (35, 43.22)},
     "910B3": {(512, 512): (20, 8.64), (768, 768): (20, 8.64), (1024, 1024): (25, 14.22), (1536, 1536): (35, 49.34)},
 }
+# Legacy Wan estimator anchors used by the 910B3 experiments; no 910B2 calibration.
 _WAN_ANCHORS = {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71}
 
 
@@ -26,16 +27,23 @@ def _positive_int(value: Any, name: str) -> int:
     return value
 
 
+def validate_service_time_profile(model_class_name: str, hardware_profile: str | None) -> None:
+    """Reject unsupported model/profile pairs at startup and request admission."""
+    if hardware_profile not in _QWEN_ANCHORS:
+        raise ValueError("tail-aware estimation requires hardware_profile '910B2' or '910B3'")
+    if model_class_name not in {"QwenImagePipeline", "WanPipeline", "Wan22Pipeline"}:
+        raise ValueError(f"Tail-aware scheduling is not supported for model class {model_class_name!r}")
+    if model_class_name != "QwenImagePipeline" and hardware_profile != "910B3":
+        raise ValueError(f"{model_class_name} is only calibrated for hardware_profile '910B3'")
+
+
 def estimate_service_time_s(sampling_params: Any, model_class_name: str, hardware_profile: str) -> float:
     """Estimate a Qwen image or Wan text-to-video request without mutation.
 
     Defaults match the calibrated Qwen-Image / Wan2.2 T2V pipelines (spatial
     VAE factor 8, patch size 2). Custom VAE/model geometries are not calibrated.
     """
-    if hardware_profile not in _QWEN_ANCHORS:
-        raise ValueError("tail-aware estimation requires hardware_profile '910B2' or '910B3'")
-    if model_class_name not in {"QwenImagePipeline", "WanPipeline", "Wan22Pipeline"}:
-        raise ValueError(f"Unsupported tail-aware model: {model_class_name!r}")
+    validate_service_time_profile(model_class_name, hardware_profile)
     if any(getattr(sampling_params, name, None) is not None for name in ("timesteps", "sigmas")):
         raise ValueError("tail-aware scheduling does not support custom timesteps or sigmas")
     qwen = model_class_name == "QwenImagePipeline"
