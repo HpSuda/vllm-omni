@@ -58,6 +58,7 @@ def prepare_tail_aware_stages(
             revision=revision,
             diffusion_load_format=execution.diffusion_load_format or "default",
         )
-    if model_class not in {"QwenImagePipeline", "WanPipeline", "Wan22Pipeline"}:
-        raise ValueError(f"Tail-aware scheduling is not supported for model class {model_class!r}")
+    from vllm_omni.scheduling.estimation import validate_service_time_profile
+
+    validate_service_time_profile(model_class, settings.get("hardware_profile"))
     return model_class
