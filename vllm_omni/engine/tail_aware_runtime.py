@@ -21,7 +21,7 @@ def prepare_tail_aware_stages(
     session_mode: str = "turn",
     api_client_count: int = 1,
 ) -> str | None:
-    """Validate the production typed stages and return the calibrated model class.
+    """Validate the production typed stages and return the supported model class.
 
     Admission state has one local owner; reject unsupported layouts before
     launching any stage process.

@@ -27,9 +27,10 @@ The equivalent top-level YAML keys are `enable_tail_aware_scheduling` and
 Supported scope: one API process, one local non-streaming diffusion stage and
 static replicas. Disable `async_chunk`; multi-stage, distributed and duplex
 execution are unsupported. Enabling risk scheduling requires an explicit
-`hardware_profile`: Qwen-Image supports `910B2` and `910B3`; Wan/Wan2.2 T2V
-supports only `910B3`. Wan on `910B2` is rejected before stage launch because
-no separate calibration is available. Add the profile when upgrading a FIFO
-deployment. Only native pipelines with one output per request are supported.
+`hardware_profile`: `910B2` or `910B3`. Qwen-Image uses profile-specific estimates;
+Wan/Wan2.2 T2V intentionally shares one reference estimate table across both
+profiles. Wan estimates are not separately calibrated for each hardware model.
+Add the profile when upgrading a FIFO deployment. Only native pipelines with
+one output per request are supported.
 Custom timesteps/sigmas, custom pipelines and custom/Diffusers engines are unsupported;
 other hardware or model geometries require new calibration and device validation.
