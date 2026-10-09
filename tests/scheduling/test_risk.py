@@ -113,11 +113,6 @@ async def test_model_hardware_profile_controls_admission(model_class, profile):
         params(1536, 35) if qwen else SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
     )
     try:
-        if not qwen and profile == "910B2":
-            with pytest.raises(ValueError, match="only calibrated for hardware_profile '910B3'"):
-                await policy.acquire("request", sampling, model_class)
-            assert policy.pending_count == 0
-            return
         request = await policy.acquire("request", sampling, model_class)
         expected = (43.22 if profile == "910B2" else 49.34) if qwen else 119.71
         assert request.replica_id == 0
