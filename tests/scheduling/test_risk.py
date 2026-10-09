@@ -9,6 +9,7 @@ import pytest
 from vllm_omni.scheduling import controller as controller_module
 from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 from vllm_omni.scheduling.controller import TailAwareController
+from vllm_omni.scheduling.estimation import estimate_service_time_s
 
 pytestmark = [pytest.mark.cpu, pytest.mark.core_model, pytest.mark.diffusion, pytest.mark.asyncio]
 
@@ -99,5 +100,34 @@ async def test_completion_feedback_changes_replica_choice_without_learning_failu
         # A slow success raises replica 1's EMA above replica 0; failure must
         # release capacity without teaching the scheduler that failed latency.
         assert (await policy.acquire("next", params(), "QwenImagePipeline")).replica_id == expected_replica
+    finally:
+        policy.close()
+
+
+@pytest.mark.parametrize("model_class", ["QwenImagePipeline", "WanPipeline", "Wan22Pipeline"])
+@pytest.mark.parametrize("profile", ["910B2", "910B3"])
+async def test_model_hardware_profile_controls_admission(model_class, profile):
+    policy = TailAwareController([0], TailAwareSchedulingConfig(enabled=True, hardware_profile=profile))
+    qwen = model_class == "QwenImagePipeline"
+    sampling = (
+        params(1536, 35) if qwen else SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
+    )
+    try:
+        if not qwen and profile == "910B2":
+            with pytest.raises(ValueError, match="only calibrated for hardware_profile '910B3'"):
+                await policy.acquire("request", sampling, model_class)
+            assert policy.pending_count == 0
+            return
+        request = await policy.acquire("request", sampling, model_class)
+        expected = (43.22 if profile == "910B2" else 49.34) if qwen else 119.71
+        assert request.replica_id == 0
+        assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(expected)
+        if not qwen:
+            policy.complete("request")
+            sampling.num_inference_steps = 12
+            sampling.num_frames = 81
+            scaled = await policy.acquire("scaled", sampling, model_class)
+            assert scaled.replica_id == 0
+            assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(119.71 * 2 * 81 / 80)
     finally:
         policy.close()

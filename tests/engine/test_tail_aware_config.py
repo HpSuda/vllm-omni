@@ -85,6 +85,9 @@ def test_serve_admission_config_reaches_resolver(
         ("local", None),
         ("wan", None),
         ("wan22", None),
+        ("qwen-b3", None),
+        ("wan-b2", "only calibrated for hardware_profile"),
+        ("wan22-b2", "only calibrated for hardware_profile"),
         ("unsupported-model", "not supported for model class"),
         ("custom-pipeline", "default native diffusion engine"),
         ("diffusers", "default native diffusion engine"),
@@ -109,6 +112,8 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
     execution_overrides = {
         "wan": {"model_class_name": "WanPipeline"},
         "wan22": {"model_class_name": "Wan22Pipeline"},
+        "wan-b2": {"model_class_name": "WanPipeline"},
+        "wan22-b2": {"model_class_name": "Wan22Pipeline"},
         "unsupported-model": {"model_class_name": "FluxPipeline"},
         "custom-pipeline": {"custom_pipeline_args": {"pipeline_class": "custom.Pipeline"}},
         "diffusers": {"diffusion_load_format": "diffusers"},
@@ -118,6 +123,8 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
         setattr(stage.diffusion_config, key, value)
     stage.connector_config.async_chunk = layout == "async-chunk"
     stage.diffusion_config.streaming_output = layout == "streaming"
+    if layout in {"wan", "wan22", "qwen-b3"}:
+        admission_settings["hardware_profile"] = "910B3"
     stages = (stage, stage) if layout == "multi-stage" else (stage,)
     resolution = OmniConfigResolution(None, stages, tail_aware_scheduling_config=admission_settings)
     mocker.patch.object(StageConfigFactory, "get_pipeline_config", return_value=None)
