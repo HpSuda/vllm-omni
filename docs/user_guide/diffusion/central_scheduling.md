@@ -28,8 +28,9 @@ Supported scope: one API process, one local non-streaming diffusion stage and
 static replicas. Disable `async_chunk`; multi-stage, distributed and duplex
 execution are unsupported. Enabling risk scheduling requires an explicit
 `hardware_profile`: `910B2` or `910B3`. Qwen-Image uses profile-specific estimates;
-Wan/Wan2.2 T2V intentionally shares one reference estimate table across both
-profiles. Wan estimates are not separately calibrated for each hardware model.
+Wan/Wan2.2 T2V selects a table by profile for exact and scaled estimates. Both
+tables currently contain identical reference data, without separate per-model
+hardware calibration.
 Add the profile when upgrading a FIFO deployment. Only native pipelines with
 one output per request are supported.
 Custom timesteps/sigmas, custom pipelines and custom/Diffusers engines are unsupported;
