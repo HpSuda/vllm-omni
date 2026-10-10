@@ -18,7 +18,10 @@ _QWEN_ANCHORS = {
     "910B3": {(512, 512): (20, 8.64), (768, 768): (20, 8.64), (1024, 1024): (25, 14.22), (1536, 1536): (35, 49.34)},
 }
 # Shared Wan reference estimates for 910B2 and 910B3, not per-SKU calibration.
-_WAN_ANCHORS = {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71}
+_WAN_ANCHORS = {
+    "910B2": {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71},
+    "910B3": {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71},
+}
 
 
 def _positive_int(value: Any, name: str) -> int:
@@ -66,14 +69,17 @@ def estimate_service_time_s(sampling_params: Any, model_class_name: str, hardwar
         anchor_steps, anchor_s = anchors[(base_width, base_height)]
         estimate = anchor_s * width * height * steps / (base_width * base_height * anchor_steps)
     else:
-        exact = _WAN_ANCHORS.get((width, height, steps, frames))
+        anchors = _WAN_ANCHORS[hardware_profile]
+        exact = anchors.get((width, height, steps, frames))
         # The original exact 80/120-frame anchors precede VAE frame rounding.
         width, height = width // 16 * 16, height // 16 * 16
         if width == 0 or height == 0:
             raise ValueError("Wan dimensions must be at least 16 pixels")
         normalized_frames = frames if frames % 4 == 1 else frames // 4 * 4 + 1
         estimate = (
-            exact if exact is not None else 119.71 * width * height * steps * normalized_frames / (1280 * 720 * 6 * 80)
+            exact
+            if exact is not None
+            else anchors[(1280, 720, 6, 80)] * width * height * steps * normalized_frames / (1280 * 720 * 6 * 80)
         )
     outputs = _positive_int(getattr(sampling_params, "num_outputs_per_prompt", 1), "num_outputs_per_prompt")
     if outputs != 1:
