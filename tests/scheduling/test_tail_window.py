@@ -181,15 +181,15 @@ async def test_overdue_replica_is_excluded_until_completion(monkeypatch, replica
             assert (
                 await policy.acquire(f"blocker-{replica}", services[replica], "QwenImagePipeline")
             ).replica_id == replica
-        for index, (arrival, service) in enumerate(((0, 160), (50, 40), (90, 2), (90, 5))):
+        for index, (arrival, service) in enumerate(((17, 40), (32, 2), (63, 160), (97, 2))):
             now[0] = arrival
             pending[f"r{index}"] = asyncio.create_task(policy.acquire(f"r{index}", service, "QwenImagePipeline"))
             await _flush()
         now[0] = 100.0
         policy.complete(f"blocker-{replica_ids[0]}")
         await _flush()
-        # Treating the overdue lane as idle incorrectly chooses r0 here.
-        assert _dispatched(pending) == {"r2": replica_ids[0]}
+        # Treating the overdue lane as idle incorrectly chooses r2 here.
+        assert _dispatched(pending) == {"r0": replica_ids[0]}
         assert policy.active_count == 2
         policy.complete(f"blocker-{replica_ids[1]}")
         await _flush()
@@ -218,3 +218,38 @@ async def test_tail_count_does_not_replace_normal_p95_objective(monkeypatch, wai
         assert tuple(policy._completed_latency_history_s) == history
         await _flush()
         assert policy.active_count == 2
+
+
+@pytest.mark.parametrize("overdue_count", [0, 7])
+async def test_overdue_normals_do_not_flatten_window_p95(monkeypatch, overdue_count):
+    now = [0.0]
+    monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
+    monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
+    policy = TailAwareController(
+        list(range(overdue_count + 1)),
+        TailAwareSchedulingConfig(enabled=True, hardware_profile="910B2", quota_amount=0),
+    )
+    pending = {}
+    try:
+        for replica in range(overdue_count + 1):
+            await policy.acquire(f"blocker-{replica}", 1.0, "QwenImagePipeline")
+        for index, (arrival, service) in enumerate(
+            ((904, 20), (909, 2), (926, 10), (954, 10), (962, 5), (962, 5), (973, 1), (973, 1), (983, 2), (995, 5))
+        ):
+            now[0] = arrival
+            name = f"r{index}"
+            pending[name] = asyncio.create_task(policy.acquire(name, service, "QwenImagePipeline"))
+            await _flush()
+        now[0] = 1000.0
+        # Cancellation frees one lane without adding a completed latency sample.
+        policy.cancel("blocker-0")
+        await _flush()
+        # Seven overdue lower bounds used to saturate P95 and select r6 by mean.
+        # The same ten-request production window must still choose r1 by P95.
+        assert _dispatched(pending) == {"r1": 0}
+        assert policy.active_count == overdue_count + 1
+        assert policy.pending_count == 9
+        assert not policy._completed_latency_history_s
+    finally:
+        policy.close()
+        await asyncio.gather(*pending.values(), return_exceptions=True)
