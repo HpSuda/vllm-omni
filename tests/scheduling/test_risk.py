@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from vllm_omni.scheduling import controller as controller_module
+from vllm_omni.scheduling import estimation as estimation_module
 from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 from vllm_omni.scheduling.controller import TailAwareController
 from vllm_omni.scheduling.estimation import estimate_service_time_s
@@ -51,6 +52,7 @@ async def test_calibrated_service_estimates_drive_actual_dispatch_order(monkeypa
             previous = expected
     finally:
         policy.close()
+
         await asyncio.gather(*waiting.values(), return_exceptions=True)
 
 
@@ -126,3 +128,18 @@ async def test_model_hardware_profile_controls_admission(model_class, profile):
             assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(119.71 * 2 * 81 / 80)
     finally:
         policy.close()
+
+
+@pytest.mark.parametrize("profile,other_profile", [("910B2", "910B3"), ("910B3", "910B2")])
+async def test_wan_uses_selected_profile_for_exact_and_scaled_estimates(monkeypatch, profile, other_profile):
+    sampling = SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
+    # Synthetic test data proves profile selection without claiming new calibration.
+    anchors = dict(estimation_module._WAN_ANCHORS[profile])
+    anchors[(1280, 720, 6, 80)] = 200.0
+    monkeypatch.setitem(estimation_module._WAN_ANCHORS, profile, anchors)
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(200.0)
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", other_profile) == pytest.approx(119.71)
+    sampling.num_inference_steps = 12
+    sampling.num_frames = 81
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(200.0 * 2 * 81 / 80)
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", other_profile) == pytest.approx(119.71 * 2 * 81 / 80)
