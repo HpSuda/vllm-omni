@@ -195,8 +195,9 @@ def plan_release_calendar(
 ) -> str:
     """Minimize Normal-request P95, then mean; execute only the first decision.
 
-    Latency samples must describe Normal requests only. Active Tails still
-    occupy lanes in the release calendar, but never enter the objective.
+    Latency samples must describe completed or predictably finishing Normal
+    requests only. Active Tails still occupy lanes in the release calendar,
+    but never enter the objective.
     """
 
     if not pending:

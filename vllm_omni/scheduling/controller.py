@@ -312,12 +312,12 @@ class TailAwareController:
             if request is not None:
                 assert request.bound_s is not None
                 release_s = max(request.bound_s + request.estimated_service_s - now_s, 0.0)
-                if not request.deferred:
-                    active_latencies.append(max(now_s + release_s - request.arrival_s, 0.0))
-                # An expired estimate gives no usable release forecast. Keep
-                # this occupied lane out of every rollout until it completes.
+                # An expired estimate gives no usable completion forecast.
+                # Exclude its lane and latency sample until it completes.
                 if release_s == 0.0:
                     continue
+                if not request.deferred:
+                    active_latencies.append(max(now_s + release_s - request.arrival_s, 0.0))
             replicas.append(replica)
             releases.append(release_s)
         first_index = next(index for index, replica in enumerate(replicas) if replica.replica_id == replica_id)
