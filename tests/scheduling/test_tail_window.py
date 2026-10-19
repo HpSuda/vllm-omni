@@ -9,33 +9,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.scheduling.helpers import controller_context, drain
 from vllm_omni.scheduling import controller as controller_module
 from vllm_omni.scheduling import planner as planner_module
-from vllm_omni.scheduling.config import TailAwareSchedulingConfig
-from vllm_omni.scheduling.controller import TailAwareController
 
 pytestmark = [pytest.mark.cpu, pytest.mark.core_model, pytest.mark.diffusion, pytest.mark.asyncio]
 
 
-async def _flush():
-    # Register admissions, drain the queue, then resume admitted coroutines.
-    for _ in range(3):
-        await asyncio.sleep(0)
-
-
 def _dispatched(pending):
     return {name: task.result().replica_id for name, task in pending.items() if task.done()}
-
-
-@asynccontextmanager
-async def _policy(**options):
-    policy = TailAwareController([0, 1], TailAwareSchedulingConfig(enabled=True, hardware_profile="910B2", **options))
-    pending = {}
-    try:
-        yield policy, pending
-    finally:
-        policy.close()
-        await asyncio.gather(*pending.values(), return_exceptions=True)
 
 
 @asynccontextmanager
@@ -57,7 +39,7 @@ async def _queued_window(monkeypatch, **options):
         beam_branch_width=4,
         beam_risk_slack_s=1000.0,
     )
-    async with _policy(**(settings | options)) as (policy, pending):
+    async with controller_context([0, 1], **(settings | options)) as (policy, pending):
         assert (await policy.acquire("blocker-0", 1.0, "QwenImagePipeline")).replica_id == 0
         assert (await policy.acquire("blocker-1", 150.0, "QwenImagePipeline")).replica_id == 1
         for arrival, name, service in (
@@ -68,7 +50,7 @@ async def _queued_window(monkeypatch, **options):
         ):
             now[0] = arrival
             pending[name] = asyncio.create_task(policy.acquire(name, service, "QwenImagePipeline"))
-            await _flush()
+            await drain()
         now[0] = 50.0
         assert not _dispatched(pending)
         assert policy.active_count == 2 and policy.pending_count == 4
@@ -81,7 +63,7 @@ async def test_real_estimates_classify_gate_and_pack_tails(monkeypatch):
         SimpleNamespace(width=size, height=size, num_inference_steps=steps, num_frames=1, num_outputs_per_prompt=1)
         for size, steps in ((512, 20), (1024, 25), (1536, 35))
     ]
-    async with _policy(quota_every=2) as (policy, pending):
+    async with controller_context([0, 1], quota_every=2) as (policy, pending):
         classified = []
         for index, sampling in enumerate((short, short, long, medium, long, long, long)):
             name = f"warmup-{index}"
@@ -94,11 +76,11 @@ async def test_real_estimates_classify_gate_and_pack_tails(monkeypatch):
             assert (await policy.acquire(f"blocker-{replica}", short, "QwenImagePipeline")).replica_id == replica
         for name, sampling in (("tail-0", long), ("tail-1", long), ("tail-2", long), ("normal", short)):
             pending[name] = asyncio.create_task(policy.acquire(name, sampling, "QwenImagePipeline"))
-        await _flush()
+        await drain()
         assert not _dispatched(pending)
         policy.complete("blocker-0")
         policy.complete("blocker-1")
-        await _flush()
+        await drain()
         # Tail reservations pack onto 0, preserving 1 for Normal; only the
         # newest Tail may backfill after the central Normal queue drains.
         assert _dispatched(pending) == {"normal": 1, "tail-2": 0}
@@ -115,7 +97,7 @@ async def test_real_estimates_classify_gate_and_pack_tails(monkeypatch):
 async def test_window_changes_immediate_risk_choice(monkeypatch, tail):
     async with _queued_window(monkeypatch, quota_amount=int(tail)) as (policy, _now, pending):
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         # Immediate risk chooses long: 50 + .625*100 = 112.5. Window planning
         # considers the other occupied replica, including active Tail work.
         assert _dispatched(pending) == {"old-short": 0}
@@ -127,20 +109,20 @@ async def test_window_changes_immediate_risk_choice(monkeypatch, tail):
 async def test_arrivals_replan_after_completion_without_preemption(monkeypatch, new_arrival, expected):
     async with _queued_window(monkeypatch) as (policy, now, pending):
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {"old-short": 0}
         now[0] = 55.0
         if new_arrival:
             pending["new"] = asyncio.create_task(policy.acquire("new", 200.0, "QwenImagePipeline"))
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {"old-short": 0}
         now[0] = 60.0
         policy.complete("old-short")
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {"old-short": 0, expected: 0}
         now[0] = 1000.0  # Both running estimates have expired, but neither completed.
         pending["late"] = asyncio.create_task(policy.acquire("late", 1.0, "QwenImagePipeline"))
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {"old-short": 0, expected: 0}
         assert policy.active_count == 2
 
@@ -153,7 +135,7 @@ async def test_outside_window_falls_back_to_risk_order(monkeypatch, window):
         pending,
     ):
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         # The same four requests pick a short request inside the window.
         assert _dispatched(pending) == {"long": 0}
         assert not pending["long"].result().is_tail
@@ -168,7 +150,7 @@ async def test_window_candidate_cap_preserves_best_evaluated_choice(monkeypatch,
         # Four evaluations exactly fill the first level's candidate set.
         score.reset_mock()
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {expected: 0}
         assert score.call_count == candidate_cap
 
@@ -177,16 +159,16 @@ async def test_window_equal_scores_keep_oldest_request(monkeypatch):
     now = [0.0]
     monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
     monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
-    async with _policy(quota_amount=0, beam_min_pending=2) as (policy, pending):
+    async with controller_context([0, 1], quota_amount=0, beam_min_pending=2) as (policy, pending):
         await policy.acquire("blocker-0", 1.0, "QwenImagePipeline")
         await policy.acquire("blocker-1", 1.0, "QwenImagePipeline")
         # Reverse lexical order so request IDs cannot replace arrival sequence.
         for name in ("z-first", "a-second"):
             pending[name] = asyncio.create_task(policy.acquire(name, 5.0, "QwenImagePipeline"))
-            await _flush()
+            await drain()
         now[0] = 1.0
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         assert _dispatched(pending) == {"z-first": 0}
 
 
@@ -195,7 +177,8 @@ async def test_overdue_replica_is_excluded_until_completion(monkeypatch, replica
     now = [0.0]
     monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
     monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
-    async with _policy(
+    async with controller_context(
+        [0, 1],
         quota_amount=0,
         band_min_pending=2,
         band_max_pending=8,
@@ -215,15 +198,15 @@ async def test_overdue_replica_is_excluded_until_completion(monkeypatch, replica
         for index, (arrival, service) in enumerate(((17, 40), (32, 2), (63, 160), (97, 2))):
             now[0] = arrival
             pending[f"r{index}"] = asyncio.create_task(policy.acquire(f"r{index}", service, "QwenImagePipeline"))
-            await _flush()
+            await drain()
         now[0] = 100.0
         policy.complete(f"blocker-{replica_ids[0]}")
-        await _flush()
+        await drain()
         # Treating the overdue lane as idle incorrectly chooses r2 here.
         assert _dispatched(pending) == {"r0": replica_ids[0]}
         assert policy.active_count == 2
         policy.complete(f"blocker-{replica_ids[1]}")
-        await _flush()
+        await drain()
         assert len(_dispatched(pending)) == 2
         assert set(_dispatched(pending).values()) == {0, 1}
 
@@ -235,10 +218,10 @@ async def test_tail_count_does_not_replace_normal_p95_objective(monkeypatch, wai
         for index in range(waiting_tails):
             name = f"tail-{index}"
             pending[name] = asyncio.create_task(policy.acquire(name, 200.0, "QwenImagePipeline"))
-        await _flush()
+        await drain()
         assert len(policy._pending_tails) == waiting_tails
         policy.complete("blocker-0")
-        await _flush()
+        await drain()
         # Normal P95 favors old-short; Tail sentinels instead favor later-short's
         # lower mean. Neither active nor waiting Tails belong in this objective.
         assert _dispatched(pending) == {"old-short": 0}
@@ -247,7 +230,7 @@ async def test_tail_count_does_not_replace_normal_p95_objective(monkeypatch, wai
         assert history == (50.0,)
         policy.complete("blocker-1")
         assert tuple(policy._completed_latency_history_s) == history
-        await _flush()
+        await drain()
         assert policy.active_count == 2
 
 
@@ -256,12 +239,7 @@ async def test_overdue_normals_do_not_flatten_window_p95(monkeypatch, overdue_co
     now = [0.0]
     monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
     monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
-    policy = TailAwareController(
-        list(range(overdue_count + 1)),
-        TailAwareSchedulingConfig(enabled=True, hardware_profile="910B2", quota_amount=0),
-    )
-    pending = {}
-    try:
+    async with controller_context(list(range(overdue_count + 1)), quota_amount=0) as (policy, pending):
         for replica in range(overdue_count + 1):
             await policy.acquire(f"blocker-{replica}", 1.0, "QwenImagePipeline")
         for index, (arrival, service) in enumerate(
@@ -270,17 +248,14 @@ async def test_overdue_normals_do_not_flatten_window_p95(monkeypatch, overdue_co
             now[0] = arrival
             name = f"r{index}"
             pending[name] = asyncio.create_task(policy.acquire(name, service, "QwenImagePipeline"))
-            await _flush()
+            await drain()
         now[0] = 1000.0
         # Cancellation frees one lane without adding a completed latency sample.
         policy.cancel("blocker-0")
-        await _flush()
+        await drain()
         # Seven overdue lower bounds used to saturate P95 and select r6 by mean.
         # The same ten-request production window must still choose r1 by P95.
         assert _dispatched(pending) == {"r1": 0}
         assert policy.active_count == overdue_count + 1
         assert policy.pending_count == 9
         assert not policy._completed_latency_history_s
-    finally:
-        policy.close()
-        await asyncio.gather(*pending.values(), return_exceptions=True)
