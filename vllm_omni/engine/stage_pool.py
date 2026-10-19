@@ -46,6 +46,7 @@ from vllm_omni.metrics.utils import (
 
 if TYPE_CHECKING:
     from vllm_omni.engine.orchestrator import OrchestratorRequestState
+    from vllm_omni.scheduling.config import TailAwareSchedulingConfig
     from vllm_omni.scheduling.controller import TailAwareController
 
 logger = init_logger(__name__)
@@ -191,14 +192,12 @@ class StagePool:
         # Admission tasks include requests already submitting to a replica.
         return self._tail_aware_controller.config.max_pending_requests + len(self.available_replica_ids())
 
-    def configure_tail_aware_scheduling(self, settings: dict[str, Any]) -> None:
+    def configure_tail_aware_scheduling(self, config: TailAwareSchedulingConfig) -> None:
         """Attach one admission controller to an already validated local pool."""
-        from vllm_omni.scheduling.config import TailAwareSchedulingConfig
         from vllm_omni.scheduling.controller import TailAwareController
 
         if self.stage_type != "diffusion" or self.is_distributed:
             raise ValueError("Tail-aware scheduling requires a local diffusion pool")
-        config = TailAwareSchedulingConfig.from_dict(settings)
         if not config.enabled:
             return
         self._tail_aware_controller = TailAwareController(self.available_replica_ids(), config)

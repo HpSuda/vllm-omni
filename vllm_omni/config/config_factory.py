@@ -652,8 +652,8 @@ class StageConfigFactory:
     def _normalize_default_diffusion(
         cls,
         kwargs: dict[str, Any],
-    ) -> tuple[dict[str, Any], DiffusionParallelConfig, dict[str, Any], str]:
-        """Normalize inputs shared by typed and compatibility diffusion builders."""
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        """Normalize explicit inputs; defer defaults and parallelism until merging."""
         kwargs = normalize_and_validate_diffusion_engine_ingress_kwargs(kwargs, stage_id=0)
         raw_sampling_params = kwargs.get("default_sampling_params")
         if isinstance(raw_sampling_params, str):
@@ -666,6 +666,24 @@ class StageConfigFactory:
             raw_sampling_params = None
         default_sampling_params = dict(raw_sampling_params.get("0", {})) if raw_sampling_params else {}
 
+        model_class_name = kwargs.get("model_class_name")
+        final_output_type = get_diffusion_output_type(model_class_name)
+        logger.info(
+            "Resolved generic diffusion final_output_type=%r for model_class_name=%r.",
+            final_output_type,
+            model_class_name,
+        )
+        return kwargs, default_sampling_params, final_output_type
+
+    @classmethod
+    def create_default_diffusion(cls, kwargs: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build the temporary runtime ABI for a generic diffusion stage.
+
+        The terminal diffusion config owns engine defaults and normalization;
+        this compatibility builder only adds Omni stage topology, request
+        defaults, and device placement.
+        """
+        kwargs, default_sampling_params, final_output_type = cls._normalize_default_diffusion(kwargs)
         parallel_config = DiffusionParallelConfig.from_stage_overrides(kwargs)
         if kwargs.get("num_gpus") is not None:
             parallel_config.resolve_data_parallel_size(int(kwargs["num_gpus"]))
@@ -679,26 +697,6 @@ class StageConfigFactory:
             {name: value for name, value in kwargs.items() if name in diffusion_config_fields}
         )
 
-        model_class_name = engine_args.get("model_class_name")
-        final_output_type = get_diffusion_output_type(model_class_name)
-        logger.info(
-            "Resolved generic diffusion final_output_type=%r for model_class_name=%r.",
-            final_output_type,
-            model_class_name,
-        )
-        return engine_args, parallel_config, default_sampling_params, final_output_type
-
-    @classmethod
-    def create_default_diffusion(cls, kwargs: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build the temporary runtime ABI for a generic diffusion stage.
-
-        The terminal diffusion config owns engine defaults and normalization;
-        this compatibility builder only adds Omni stage topology, request
-        defaults, and device placement.
-        """
-        engine_args, parallel_config, default_sampling_params, final_output_type = cls._normalize_default_diffusion(
-            kwargs
-        )
         engine_args["parallel_config"] = asdict(parallel_config)
         engine_args["model_stage"] = "diffusion"
 
@@ -734,9 +732,7 @@ class StageConfigFactory:
         engine_kwargs = {
             name: value for name, value in kwargs.items() if name not in runtime_overrides and name != "stage_0_devices"
         }
-        engine_overrides, parallel_config, default_sampling_params, final_output_type = (
-            cls._normalize_default_diffusion(engine_kwargs)
-        )
+        stage_values, default_sampling_params, final_output_type = cls._normalize_default_diffusion(engine_kwargs)
         # Admission/routing is orchestrator-owned. Preserve these global inputs
         # across the generic diffusion fallback; they never become worker fields.
         scheduling_overrides = {
@@ -744,8 +740,7 @@ class StageConfigFactory:
             for name in ("enable_tail_aware_scheduling", "tail_aware_scheduling_config")
             if kwargs.get(name) is not None
         }
-        engine_overrides.update(asdict(parallel_config))
-        model_class_name = engine_overrides.get("model_class_name")
+        model_class_name = stage_values.get("model_class_name")
         pipeline = PipelineConfig(
             model_type="generic_diffusion",
             model_arch=str(model_class_name or ""),
@@ -764,16 +759,12 @@ class StageConfigFactory:
         # explicit request sampling parameters must still be able to override them.
         deploy = cls._load_user_deploy_config(deploy_config_path)
         if deploy is None:
-            stage_values = engine_overrides
             deploy = DeployConfig(
                 stages=[StageDeployConfig(stage_id=0, default_sampling_params=default_sampling_params)]
             )
         else:
             if any(stage.stage_id != 0 for stage in deploy.stages):
                 raise ValueError("A generic diffusion deployment has only stage 0")
-            # Inferred defaults must not replace explicit deployment values.
-            # Normalize aliases but retain only caller-owned keys at this layer.
-            stage_values = normalize_and_validate_diffusion_engine_ingress_kwargs(engine_kwargs, stage_id=0)
             if kwargs.get("default_sampling_params") is not None:
                 stage_zero = next((stage for stage in deploy.stages if stage.stage_id == 0), None)
                 if stage_zero is None:

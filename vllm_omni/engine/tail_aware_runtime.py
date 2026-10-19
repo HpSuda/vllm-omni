@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
+
+from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 
 if TYPE_CHECKING:
     from vllm_omni.config.omni_config import BaseVllmOmniStageConfig, VllmOmniDiffusionStageConfig
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
 def prepare_tail_aware_stages(
     stages: list[BaseVllmOmniStageConfig],
-    settings: dict[str, Any] | None,
+    settings: TailAwareSchedulingConfig,
     *,
     distributed: bool = False,
     async_chunk: bool = False,
@@ -25,7 +27,7 @@ def prepare_tail_aware_stages(
     Admission state has one local owner; reject unsupported layouts before
     launching any stage process.
     """
-    if not settings or not settings.get("enabled", False):
+    if not settings.enabled:
         return False
     if distributed or api_client_count != 1:
         raise ValueError("Tail-aware scheduling requires one local head with locally managed replicas")

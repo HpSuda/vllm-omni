@@ -66,6 +66,7 @@ from vllm_omni.entrypoints.utils import prepare_stage_config_inputs
 from vllm_omni.inputs.data import OmniSamplingParams
 from vllm_omni.inputs.preprocess import build_omni_renderer
 from vllm_omni.metrics.prometheus import OmniRequestCounter
+from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 
 logger = init_logger(__name__)
 
@@ -125,7 +126,7 @@ class OmniEngineBase:
     _enable_orch_monitor: bool = False
     _client_config: OmniClientConfig | None = None
     _output_sink: OutputQueueSink | None = None
-    _tail_aware_scheduling_config: dict[str, Any] | None = None
+    _tail_aware_scheduling_config: TailAwareSchedulingConfig = TailAwareSchedulingConfig()
     _tail_aware_scheduling_enabled: bool = False
 
     def __init__(

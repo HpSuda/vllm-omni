@@ -18,6 +18,7 @@ from vllm_omni.config.stage_config import PipelineConfig
 from vllm_omni.diffusion.data import resolve_model_class_name
 from vllm_omni.diffusion.registry import DiffusionModelRegistry, resolve_native_single_file
 from vllm_omni.diffusion.utils.hf_utils import is_diffusion_model
+from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 
 logger = init_logger(__name__)
 
@@ -30,7 +31,7 @@ class OmniConfigResolution:
     stage_configs: tuple[Any, ...]
     pipeline_config: PipelineConfig | None = None
     omni_lb_policy: str | None = None
-    tail_aware_scheduling_config: dict[str, Any] = field(default_factory=lambda: {"enabled": False})
+    tail_aware_scheduling_config: TailAwareSchedulingConfig = field(default_factory=TailAwareSchedulingConfig)
 
     @property
     def endpoint_restrictions(self) -> tuple[EndpointRestriction, ...]:
@@ -175,7 +176,7 @@ def _build_registered_resolution(
         stage_configs=tuple(structured_config.stage_configs),
         pipeline_config=structured_config.pipeline_config,
         omni_lb_policy=getattr(structured_config, "strategy_omni_lb_policy", None),
-        tail_aware_scheduling_config=dict(structured_config.orchestrator_config.tail_aware_scheduling_config),
+        tail_aware_scheduling_config=structured_config.orchestrator_config.tail_aware_scheduling_config,
     )
 
 
@@ -244,7 +245,7 @@ def resolve_omni_config(
         config_path=deploy_config_path,
         stage_configs=tuple(default_config.stage_configs),
         pipeline_config=default_config.pipeline_config,
-        tail_aware_scheduling_config=dict(default_config.orchestrator_config.tail_aware_scheduling_config),
+        tail_aware_scheduling_config=default_config.orchestrator_config.tail_aware_scheduling_config,
     )
 
 

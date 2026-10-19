@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from dataclasses import InitVar, asdict, dataclass, field, fields
+from dataclasses import InitVar, dataclass, field, fields
 from functools import wraps
 from inspect import Parameter, signature
 from pathlib import Path
@@ -63,6 +63,7 @@ from vllm_omni.config.stage_config import (
     validate_native_mrv2_session,
 )
 from vllm_omni.diffusion.diffusion_kv.config import DiffusionKVCacheMode
+from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 
 logger = init_logger(__name__)
 
@@ -1662,7 +1663,7 @@ def _orchestrator_cli_overrides(cli_overrides: Mapping[str, Any]) -> dict[str, A
     overrides: dict[str, Any] = {}
     for config_field in fields(cast(Any, VllmOmniOrchestratorConfig)):
         name = config_field.name
-        if name == "deploy_config_path":
+        if name in {"deploy_config_path", "tail_aware_scheduling_config"}:
             continue
         if cli_overrides.get(name) is not None:
             overrides[name] = _copy_value(cli_overrides[name])
@@ -1674,8 +1675,7 @@ class VllmOmniOrchestratorConfig:
     """Configuration consumed by the orchestrator process only."""
 
     stage_init_timeout: int = Field(default=300, ge=1)
-    enable_tail_aware_scheduling: bool = False
-    tail_aware_scheduling_config: dict[str, Any] = field(default_factory=dict)
+    tail_aware_scheduling_config: TailAwareSchedulingConfig = field(default_factory=TailAwareSchedulingConfig)
     init_timeout: int = Field(default=600, ge=1)
     worker_backend: str = "multi_process"
     ray_address: str | None = None
@@ -2440,8 +2440,6 @@ class VllmOmniConfig:
                     role=stage.model_stage,
                 )
 
-        from vllm_omni.scheduling.config import TailAwareSchedulingConfig
-
         # Deployment values first; explicit CLI values take precedence.
         scheduling_values: dict[str, Any] = {}
         for settings, enabled in (
@@ -2454,9 +2452,8 @@ class VllmOmniConfig:
                 scheduling_values.update(settings)
             if enabled is not None:
                 scheduling_values["enabled"] = enabled
-        scheduling_config = asdict(TailAwareSchedulingConfig.from_dict(scheduling_values))
+        scheduling_config = TailAwareSchedulingConfig.from_dict(scheduling_values)
         orchestrator_overrides = _orchestrator_cli_overrides(cli_overrides)
-        orchestrator_overrides["enable_tail_aware_scheduling"] = scheduling_config["enabled"]
         orchestrator_overrides["tail_aware_scheduling_config"] = scheduling_config
         orchestrator_config = cast(Any, VllmOmniOrchestratorConfig)(
             deploy_config_path=loaded_deploy_config_path,

@@ -21,7 +21,9 @@ request batching does not combine centrally queued requests.
 
 The equivalent top-level YAML keys are `enable_tail_aware_scheduling` and
 `tail_aware_scheduling_config`. Explicit CLI values override YAML values;
-`--no-enable-tail-aware-scheduling` overrides an enabled deployment.
+`--no-enable-tail-aware-scheduling` overrides an enabled deployment. Generic diffusion
+deployments merge these explicit inputs with YAML before deriving effective
+parallelism from `--num-gpus`.
 
 Supported scope: one API process, one local non-streaming diffusion stage and
 static replicas. Disable `async_chunk`; multi-stage, distributed and duplex

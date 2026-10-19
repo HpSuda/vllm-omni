@@ -13,6 +13,7 @@ from vllm_omni.engine.messages import StageSubmissionMessage
 from vllm_omni.engine.orchestrator import Orchestrator
 from vllm_omni.engine.stage_pool import StagePool
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
+from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 
 pytestmark = [pytest.mark.cpu, pytest.mark.core_model, pytest.mark.diffusion, pytest.mark.asyncio]
 
@@ -77,7 +78,9 @@ async def runtime():
     def create(replicas=1, limit=1):
         clients = [Backend() for _ in range(replicas)]
         pool = StagePool(0, clients)
-        pool.configure_tail_aware_scheduling({"enabled": True, "max_pending_requests": limit})
+        config = TailAwareSchedulingConfig(enabled=True, max_pending_requests=limit)
+        pool.configure_tail_aware_scheduling(config)
+        assert pool._tail_aware_controller.config is config
         stage_waiting = {}
         orch = Orchestrator(
             request_async_queue=asyncio.Queue(),
