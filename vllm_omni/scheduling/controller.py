@@ -327,7 +327,7 @@ class TailAwareController:
                     request.request_id,
                     request.sequence,
                     request.arrival_s,
-                    (request.estimated_service_s,) * len(replicas),
+                    request.estimated_service_s,
                 )
                 for request in self._pending_normals
             ],

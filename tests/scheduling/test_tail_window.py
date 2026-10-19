@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from vllm_omni.scheduling import controller as controller_module
+from vllm_omni.scheduling import planner as planner_module
 from vllm_omni.scheduling.config import TailAwareSchedulingConfig
 from vllm_omni.scheduling.controller import TailAwareController
 
@@ -157,6 +158,36 @@ async def test_outside_window_falls_back_to_risk_order(monkeypatch, window):
         assert _dispatched(pending) == {"long": 0}
         assert not pending["long"].result().is_tail
         assert policy.active_count == 2 and policy.pending_count == 3
+
+
+@pytest.mark.parametrize("candidate_cap,expected", [(1, "long"), (2, "old-short"), (4, "old-short"), (5, "old-short")])
+async def test_window_candidate_cap_preserves_best_evaluated_choice(monkeypatch, mocker, candidate_cap, expected):
+    score = mocker.spy(planner_module, "_greedy_complete")
+    async with _queued_window(monkeypatch, beam_candidate_cap=candidate_cap) as (policy, _now, pending):
+        # The first risk candidate is long; a second evaluation can improve P95.
+        # Four evaluations exactly fill the first level's candidate set.
+        score.reset_mock()
+        policy.complete("blocker-0")
+        await _flush()
+        assert _dispatched(pending) == {expected: 0}
+        assert score.call_count == candidate_cap
+
+
+async def test_window_equal_scores_keep_oldest_request(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(controller_module.time, "perf_counter", lambda: now[0])
+    monkeypatch.setattr(controller_module, "estimate_service_time_s", lambda service, *args: service)
+    async with _policy(quota_amount=0, beam_min_pending=2) as (policy, pending):
+        await policy.acquire("blocker-0", 1.0, "QwenImagePipeline")
+        await policy.acquire("blocker-1", 1.0, "QwenImagePipeline")
+        # Reverse lexical order so request IDs cannot replace arrival sequence.
+        for name in ("z-first", "a-second"):
+            pending[name] = asyncio.create_task(policy.acquire(name, 5.0, "QwenImagePipeline"))
+            await _flush()
+        now[0] = 1.0
+        policy.complete("blocker-0")
+        await _flush()
+        assert _dispatched(pending) == {"z-first": 0}
 
 
 @pytest.mark.parametrize("replica_ids", [(0, 1), (1, 0)])

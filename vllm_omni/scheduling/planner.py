@@ -23,10 +23,7 @@ class ReleaseCalendarRequest:
     request_id: str
     sequence: int
     arrival_time_s: float
-    estimated_service_s_by_backend: tuple[float, ...]
-
-    def estimate_on(self, backend_index: int) -> float:
-        return self.estimated_service_s_by_backend[backend_index]
+    estimated_service_s: float
 
 
 @dataclass(frozen=True)
@@ -34,7 +31,6 @@ class _BeamState:
     slots_s: tuple[float, ...]
     projected_latencies_s: tuple[float, ...]
     remaining: tuple[ReleaseCalendarRequest, ...]
-    first_request_id: str
     prefix: tuple[str, ...]
     rollout_objective: tuple[float, float]
 
@@ -60,19 +56,17 @@ def _request_risk(
     request: ReleaseCalendarRequest,
     *,
     dispatch_s: float,
-    backend_index: int,
     depth: int,
     config: TailAwareSchedulingConfig,
 ) -> float:
     beta = config.band_risk_beta if config.band_min_pending <= depth <= config.band_max_pending else config.risk_beta
-    return dispatch_s - request.arrival_time_s + beta * request.estimate_on(backend_index)
+    return dispatch_s - request.arrival_time_s + beta * request.estimated_service_s
 
 
 def _queue_band_select(
     requests: Sequence[ReleaseCalendarRequest],
     *,
     dispatch_s: float,
-    backend_index: int,
     config: TailAwareSchedulingConfig,
 ) -> ReleaseCalendarRequest:
     depth = len(requests)
@@ -82,7 +76,6 @@ def _queue_band_select(
             -_request_risk(
                 request,
                 dispatch_s=dispatch_s,
-                backend_index=backend_index,
                 depth=depth,
                 config=config,
             ),
@@ -96,14 +89,12 @@ def _critical_candidates(
     remaining: tuple[ReleaseCalendarRequest, ...],
     *,
     dispatch_s: float,
-    backend_index: int,
     config: TailAwareSchedulingConfig,
 ) -> tuple[ReleaseCalendarRequest, ...]:
     risks = {
         request.request_id: _request_risk(
             request,
             dispatch_s=dispatch_s,
-            backend_index=backend_index,
             depth=len(remaining),
             config=config,
         )
@@ -120,7 +111,7 @@ def _critical_candidates(
     # Preserve the prototype's structural shortest alternative. This can add
     # one request beyond branch_width, while candidate_cap remains the hard
     # bound on total planner work.
-    shortest = min(remaining, key=lambda request: (request.estimate_on(backend_index), *risk_key(request)))
+    shortest = min(remaining, key=lambda request: (request.estimated_service_s, *risk_key(request)))
     if risks[shortest.request_id] >= minimum_risk and all(
         request.request_id != shortest.request_id for request in eligible
     ):
@@ -145,49 +136,20 @@ def _greedy_complete(
         selected = _queue_band_select(
             mutable_remaining,
             dispatch_s=dispatch_s,
-            backend_index=backend_index,
             config=config,
         )
-        finish_s = dispatch_s + selected.estimate_on(backend_index)
+        finish_s = dispatch_s + selected.estimated_service_s
         mutable_slots[backend_index] = finish_s - now_s
         mutable_projected.append(finish_s - selected.arrival_time_s)
         mutable_remaining.remove(selected)
     return percentile_type7(mutable_projected, 0.95), statistics.fmean(mutable_projected)
 
 
-def _validated_release_calendar(
-    release_calendar_s: Sequence[float] | None,
-    pending: Sequence[ReleaseCalendarRequest],
-) -> tuple[float, ...] | None:
-    if release_calendar_s is None or not release_calendar_s:
-        return None
-    slots: list[float] = []
-    for raw_slot in release_calendar_s:
-        if (
-            isinstance(raw_slot, bool)
-            or not isinstance(raw_slot, (int, float))
-            or not math.isfinite(raw_slot)
-            or raw_slot < 0.0
-        ):
-            return None
-        slots.append(float(raw_slot))
-    for request in pending:
-        estimates = request.estimated_service_s_by_backend
-        if len(estimates) != len(slots):
-            return None
-        if any(
-            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0.0
-            for value in estimates
-        ):
-            return None
-    return tuple(slots)
-
-
 def plan_release_calendar(
     *,
     pending: Sequence[ReleaseCalendarRequest],
     now_s: float,
-    release_calendar_s: Sequence[float] | None,
+    release_calendar_s: Sequence[float],
     first_backend_index: int,
     completed_latencies_s: Iterable[float],
     active_projected_latencies_s: Iterable[float],
@@ -198,6 +160,10 @@ def plan_release_calendar(
     Latency samples must describe completed or predictably finishing Normal
     requests only. Active Tails still occupy lanes in the release calendar,
     but never enter the objective.
+
+    The controller supplies positive scalar service estimates and a nonempty
+    calendar of finite, nonnegative release delays. first_backend_index names
+    the acquired idle replica in that same calendar; overdue lanes are absent.
     """
 
     if not pending:
@@ -212,47 +178,29 @@ def plan_release_calendar(
         for value in active_projected_latencies_s
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0.0
     ]
-    if not 0 <= first_backend_index < (len(release_calendar_s) if release_calendar_s is not None else 0):
-        # The request estimates are still sufficient for a stable Queue-Band
-        # fallback when callers pass a missing release calendar.
-        fallback_backend = max(first_backend_index, 0)
-        if pending and pending[0].estimated_service_s_by_backend:
-            fallback_backend = min(
-                fallback_backend,
-                len(pending[0].estimated_service_s_by_backend) - 1,
-            )
-        return _queue_band_select(pending, dispatch_s=now_s, backend_index=fallback_backend, config=config).request_id
-    slots = _validated_release_calendar(release_calendar_s, pending)
-    if slots is None or not config.beam_min_pending <= len(pending) <= config.beam_max_pending:
-        return _queue_band_select(
-            pending, dispatch_s=now_s, backend_index=first_backend_index, config=config
-        ).request_id
+    if not config.beam_min_pending <= len(pending) <= config.beam_max_pending:
+        return _queue_band_select(pending, dispatch_s=now_s, config=config).request_id
+    slots = tuple(release_calendar_s)
 
     initial_projected = (*completed, *active)
     base = _queue_band_select(
         pending,
         dispatch_s=now_s + slots[first_backend_index],
-        backend_index=first_backend_index,
         config=config,
     )
     initial = _BeamState(
         slots_s=slots,
         projected_latencies_s=initial_projected,
         remaining=tuple(pending),
-        first_request_id=base.request_id,
         prefix=(),
         # Only expanded children are ranked.
         rollout_objective=(math.inf, math.inf),
     )
     beam = [initial]
     candidate_count = 0
-    cap_reached = False
     for depth_index in range(min(config.beam_horizon, len(pending))):
         children: list[_BeamState] = []
         for state in beam:
-            if not state.remaining:
-                children.append(state)
-                continue
             backend_index = (
                 first_backend_index
                 if depth_index == 0
@@ -262,14 +210,10 @@ def plan_release_calendar(
             for selected in _critical_candidates(
                 state.remaining,
                 dispatch_s=dispatch_s,
-                backend_index=backend_index,
                 config=config,
             ):
-                if candidate_count >= config.beam_candidate_cap:
-                    cap_reached = True
-                    break
                 child_slots = list(state.slots_s)
-                finish_s = dispatch_s + selected.estimate_on(backend_index)
+                finish_s = dispatch_s + selected.estimated_service_s
                 child_slots[backend_index] = finish_s - now_s
                 child_projected = (
                     *state.projected_latencies_s,
@@ -290,37 +234,23 @@ def plan_release_calendar(
                         slots_s=tuple(child_slots),
                         projected_latencies_s=child_projected,
                         remaining=child_remaining,
-                        first_request_id=(selected.request_id if not state.prefix else state.first_request_id),
                         prefix=(*state.prefix, selected.request_id),
                         rollout_objective=child_objective,
                     )
                 )
                 candidate_count += 1
-            if cap_reached:
+                if candidate_count >= config.beam_candidate_cap:
+                    break
+            if candidate_count >= config.beam_candidate_cap:
                 break
-        if not children:
-            break
         children.sort(
             key=lambda state: (
                 state.rollout_objective,
-                state.first_request_id != base.request_id,
+                state.prefix[0] != base.request_id,
                 state.prefix,
             )
         )
         beam = children[: config.beam_width]
-        if cap_reached or not beam[0].remaining:
+        if candidate_count >= config.beam_candidate_cap or not beam[0].remaining:
             break
-
-    if not beam or not beam[0].prefix:
-        return _queue_band_select(
-            pending, dispatch_s=now_s, backend_index=first_backend_index, config=config
-        ).request_id
-    best = min(
-        beam,
-        key=lambda state: (
-            state.rollout_objective,
-            state.first_request_id != base.request_id,
-            state.prefix,
-        ),
-    )
-    return best.first_request_id
+    return beam[0].prefix[0]
