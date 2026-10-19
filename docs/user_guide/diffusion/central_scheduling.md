@@ -9,12 +9,15 @@ vllm serve Qwen/Qwen-Image --omni --no-async-chunk \
 ```
 
 Requests wait in a central FIFO queue. An idle replica takes the oldest request;
-each replica executes one request at a time. Completion, cancellation or failure
-releases the slot. Running requests are never preempted.
+each replica executes one request at a time. Queued cancellations release their
+reservations immediately. Submitted work holds its slot until the worker reports
+termination or completion; replica failure removes the slot from admission.
+Running requests are never preempted.
 
 `max_pending_requests` defaults to 1024; admission overflow returns HTTP 429.
 To use multiple local replicas, set stage 0's `num_replicas` and `devices` in
-`--deploy-config`. The request API and worker execution settings stay unchanged.
+`--deploy-config`. Each replica receives one request at a time; worker-side
+request batching does not combine centrally queued requests.
 
 The equivalent top-level YAML keys are `enable_tail_aware_scheduling` and
 `tail_aware_scheduling_config`. Explicit CLI values override YAML values;

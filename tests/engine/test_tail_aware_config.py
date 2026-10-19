@@ -120,3 +120,52 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
     resolve.assert_called_once()
     assert queues.call_count == (0 if error else 1)
     launch.assert_not_called()
+
+
+@pytest.mark.parametrize("world,tp,enabled", [(2, 1, False), (4, 1, True), (4, 2, True)])
+def test_generic_yaml_preserves_world_and_admission(tmp_path, mocker, admission_settings, world, tp, enabled):
+    mocker.patch.object(StageConfigFactory, "get_pipeline_config", return_value=None)
+    mocker.patch(
+        "vllm_omni.config.resolver._resolve_generic_diffusion_model_class",
+        return_value=(True, "QwenImagePipeline"),
+    )
+    mocker.patch("vllm_omni.config.config_factory.get_diffusion_output_type", return_value="image")
+    devices = ";".join(",".join(str(i) for i in range(n * world, (n + 1) * world)) for n in range(2))
+    deploy = tmp_path / "generic.yaml"
+    deploy.write_text(
+        yaml.safe_dump(
+            {
+                "async_chunk": False,
+                "enable_tail_aware_scheduling": enabled,
+                "tail_aware_scheduling_config": admission_settings,
+                "stages": [
+                    {
+                        "stage_id": 0,
+                        "num_replicas": 2,
+                        "devices": devices,
+                        "engine_args": {"tensor_parallel_size": tp, "vae_use_tiling": True},
+                    }
+                ],
+            }
+        )
+    )
+    parser = TrackingArgumentParser()
+    serve = OmniServeCommand().subparser_init(parser.add_subparsers())
+    cli = ["--num-gpus", str(world), "--tail-aware-scheduling-config", '{"max_pending_requests":3}']
+    result = resolve_omni_config(
+        "local-test-model",
+        trust_remote_code=False,
+        deploy_config_path=str(deploy),
+        cli_overrides=serve.parse_args(cli).get_explicit_kwargs_dict(),
+        stage_overrides=None,
+        strategy_config_path=None,
+    )
+    stage = result.stage_configs[0]
+    assert stage.parallel_config.tensor_parallel_size == tp
+    assert stage.parallel_config.data_parallel_size == world // tp
+    assert stage.runtime_config.num_gpus == world
+    assert stage.runtime_config.num_replicas == 2
+    assert stage.runtime_config.devices == devices
+    assert stage.diffusion_config.vae_use_tiling
+    assert result.tail_aware_scheduling_config["enabled"] is enabled
+    assert result.tail_aware_scheduling_config["max_pending_requests"] == 3

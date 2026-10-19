@@ -176,6 +176,7 @@ class StagePool:
         # binding shapes do not collide.
         self._affinity: dict[str, str] = {}
         self._tail_aware_controller: TailAwareController | None = None
+        self._tail_aware_submitted: set[str] = set()
         self.admission_waiting_count = 0
         self.on_admission_waiting_changed: Callable[[], None] | None = None
 
@@ -205,6 +206,7 @@ class StagePool:
     def close_tail_aware_scheduling(self) -> None:
         if self._tail_aware_controller is not None:
             self._tail_aware_controller.close()
+        self._tail_aware_submitted.clear()
 
     # ---- Stage-level properties ----
 
@@ -593,9 +595,10 @@ class StagePool:
 
     def release_binding(self, request_id: str) -> None:
         """Drop the route binding for *request_id* in this stage."""
-        if self._tail_aware_controller is not None:
+        if self._tail_aware_controller is not None and request_id not in self._tail_aware_submitted:
             # Terminal output already completed successful requests. Cleanup
-            # covers admission cancellation and every remaining failure path.
+            # releases only work that has not reached the worker. An abort send
+            # does not acknowledge execution stopping; poll handles that later.
             self._tail_aware_controller.cancel(request_id)
         self._request_bindings.pop(request_id, None)
         self._affinity.pop(request_id, None)
@@ -632,7 +635,7 @@ class StagePool:
             self._unavailable_replicas.add(replica_id)
             self._notify_membership_changed()
         if self._tail_aware_controller is not None:
-            self._tail_aware_controller.remove_replica(replica_id)
+            self._tail_aware_submitted.difference_update(self._tail_aware_controller.remove_replica(replica_id))
         return self.release_replica_bindings(replica_id)
 
     def is_replica_available(self, replica_id: int) -> bool:
@@ -1205,6 +1208,7 @@ class StagePool:
                 raise StageUnavailableError(f"stage {self.stage_id} replica {replica_id} is unavailable")
             self._request_bindings[request_id] = replica_id
             client = self._diffusion_client(replica_id)
+            self._tail_aware_submitted.add(request_id)
             await client.add_request_async(request_id, request, params, **submit_kwargs)
             return replica_id
         except EngineDeadError:
@@ -1212,17 +1216,19 @@ class StagePool:
             # waiters. Keep the binding for orchestrator failure attribution.
             self._unavailable_replicas.add(replica_id)
             controller.remove_replica(replica_id)
+            self._tail_aware_submitted.discard(request_id)
             raise
-        except BaseException:
+        except BaseException as exc:
             # Submission may have reached the worker before cancellation.
-            # Abort before making the reserved capacity available again.
+            # Keep capacity reserved until the worker reports a terminal output.
             if client is not None:
                 try:
                     await asyncio.shield(client.abort_requests_async([request_id]))
                 except Exception:
                     logger.warning("Failed to abort interrupted diffusion submission %s", request_id, exc_info=True)
-            controller.cancel(request_id)
-            self._request_bindings.pop(request_id, None)
+            if not isinstance(exc, asyncio.CancelledError):
+                self._tail_aware_submitted.discard(request_id)
+            self.release_binding(request_id)
             raise
 
     async def submit_update(
@@ -1425,6 +1431,7 @@ class StagePool:
             return None
         output = cast(StagePoolDiffusionClient, raw_client).get_diffusion_output_nowait()
         if output is not None and self._tail_aware_controller is not None and output.finished:
+            self._tail_aware_submitted.discard(output.request_id)
             self._tail_aware_controller.complete(output.request_id)
         return output
 
@@ -1612,7 +1619,7 @@ class StagePool:
     def shutdown_replica(self, replica_id: int) -> None:
         """Shutdown one backend handle in this stage pool."""
         if self._tail_aware_controller is not None:
-            self._tail_aware_controller.remove_replica(replica_id)
+            self._tail_aware_submitted.difference_update(self._tail_aware_controller.remove_replica(replica_id))
         if replica_id >= len(self.clients):
             return
         client = self.clients[replica_id]

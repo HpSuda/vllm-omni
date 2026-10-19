@@ -22,6 +22,7 @@ class Backend:
     final_output = True
 
     def __init__(self):
+        self.outputs = asyncio.Queue()
         self.started = asyncio.Queue()
         self.finish_submit = asyncio.Event()
         self.error = None
@@ -36,6 +37,9 @@ class Backend:
 
     async def abort_requests_async(self, request_ids):
         await asyncio.sleep(0)
+
+    def get_diffusion_output_nowait(self):
+        return self.outputs.get_nowait() if not self.outputs.empty() else None
 
     def shutdown(self):
         pass
@@ -208,3 +212,29 @@ async def test_dead_submit_cannot_admit_waiter_to_failed_replica(runtime, monkey
     error = orch.output_async_queue.get_nowait()
     assert error.request_id == "A"
     assert orch.output_async_queue.empty()
+
+
+@pytest.mark.parametrize("submission_in_flight", [False, True])
+@pytest.mark.parametrize("terminal_aborted", [False, True])
+async def test_cancelled_execution_holds_slot_until_terminal_output(runtime, submission_in_flight, terminal_aborted):
+    orch, pool, (backend,), _ = runtime()
+    if not submission_in_flight:
+        backend.finish_submit.set()
+    await orch._handle_add_request(_message("A"))
+    assert await asyncio.wait_for(backend.started.get(), 1) == "A"
+    await orch._handle_add_request(_message("B"))
+    await asyncio.sleep(0)
+    waiter = orch._tail_aware_admission_tasks["B"]
+    await orch._cleanup_request_ids(["A"], abort=True)
+    for _ in range(3):
+        await asyncio.sleep(0)
+    # Sending abort is not a worker completion acknowledgment.
+    assert backend.submitted == ["A"]
+    assert not waiter.done()
+    assert pool._tail_aware_controller.pending_count == 1
+    assert pool._tail_aware_controller.active_count == 1
+    backend.finish_submit.set()
+    backend.outputs.put_nowait(SimpleNamespace(request_id="A", finished=True, aborted=terminal_aborted, error=None))
+    pool.poll_diffusion_output(0)
+    await asyncio.wait_for(waiter, 1)
+    assert backend.submitted == ["A", "B"]
