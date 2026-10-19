@@ -125,7 +125,7 @@ async def test_model_hardware_profile_controls_admission(model_class, profile):
             sampling.num_frames = 81
             scaled = await policy.acquire("scaled", sampling, model_class)
             assert scaled.replica_id == 0
-            assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(119.71 * 2 * 81 / 80)
+            assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(119.71 * 2)
     finally:
         policy.close()
 
@@ -135,11 +135,31 @@ async def test_wan_uses_selected_profile_for_exact_and_scaled_estimates(monkeypa
     sampling = SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
     # Synthetic test data proves profile selection without claiming new calibration.
     anchors = dict(estimation_module._WAN_ANCHORS[profile])
-    anchors[(1280, 720, 6, 80)] = 200.0
+    anchors[(1280, 720, 6, 81)] = 200.0
     monkeypatch.setitem(estimation_module._WAN_ANCHORS, profile, anchors)
     assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(200.0)
     assert estimate_service_time_s(sampling, "Wan22Pipeline", other_profile) == pytest.approx(119.71)
     sampling.num_inference_steps = 12
     sampling.num_frames = 81
-    assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(200.0 * 2 * 81 / 80)
-    assert estimate_service_time_s(sampling, "Wan22Pipeline", other_profile) == pytest.approx(119.71 * 2 * 81 / 80)
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(200.0 * 2)
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", other_profile) == pytest.approx(119.71 * 2)
+
+
+@pytest.mark.parametrize("profile", ["910B2", "910B3"])
+@pytest.mark.parametrize(
+    "width,steps,frames,expected", [(854, 3, 80, 38.07), (854, 4, 120, 71.34), (1280, 6, 80, 119.71)]
+)
+async def test_wan_equivalent_execution_shapes_have_equal_estimates(profile, width, steps, frames, expected):
+    raw = SimpleNamespace(
+        width=width, height=480 if width == 854 else 720, num_inference_steps=steps, num_frames=frames
+    )
+    normalized = SimpleNamespace(**vars(raw))
+    normalized.width = width // 16 * 16
+    normalized.num_frames = frames // 4 * 4 + 1
+    for sampling in (raw, normalized):
+        assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(expected)
+    raw.num_inference_steps += 1
+    normalized.num_inference_steps += 1
+    assert estimate_service_time_s(raw, "Wan22Pipeline", profile) == pytest.approx(
+        estimate_service_time_s(normalized, "Wan22Pipeline", profile)
+    )

@@ -101,6 +101,11 @@ def test_serve_admission_config_reaches_resolver(
         ("qwen-b3", None),
         ("wan-b2", None),
         ("wan22-b2", None),
+        ("wan-ti2v", "standard T2V only"),
+        ("wan-dmd", "standard T2V only"),
+        ("wan-i2v", "standard T2V only"),
+        ("wan-image-encoder", "standard T2V only"),
+        ("wan-missing-index", "standard T2V only"),
         ("unsupported-model", "not supported for model class"),
         ("custom-pipeline", "default native diffusion engine"),
         ("diffusers", "default native diffusion engine"),
@@ -121,7 +126,20 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
             execution_type=StageExecutionType.DIFFUSION,
         ),
     )
-    stage.diffusion_config.model_class_name = "QwenImagePipeline"
+    stage.diffusion_config.model_class_name = "WanPipeline" if layout.startswith("wan-") else "QwenImagePipeline"
+    model_index = {"_class_name": "WanPipeline"}
+    if layout == "wan-ti2v":
+        model_index["expand_timesteps"] = True
+    elif layout == "wan-dmd":
+        model_index["_class_name"] = "WanDMDPipeline"
+    elif layout == "wan-i2v":
+        model_index["_class_name"] = "WanImageToVideoPipeline"
+    elif layout == "wan-image-encoder":
+        model_index["image_encoder"] = ["transformers", "CLIPVisionModel"]
+    read_index = mocker.patch(
+        "vllm_omni.diffusion.utils.hf_utils.get_diffusion_model_index",
+        return_value=None if layout == "wan-missing-index" else model_index,
+    )
     execution_overrides = {
         "wan": {"model_class_name": "WanPipeline"},
         "wan22": {"model_class_name": "Wan22Pipeline"},
@@ -134,6 +152,9 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
     }
     for key, value in execution_overrides.get(layout, {}).items():
         setattr(stage.diffusion_config, key, value)
+    if layout.startswith("wan"):
+        stage.model_config.model = "stage-selected-wan"
+        stage.model_config.revision = "stage-revision"
     stage.connector_config.async_chunk = layout == "async-chunk"
     stage.diffusion_config.streaming_output = layout == "streaming"
     if layout in {"wan", "wan22", "qwen-b3"}:
@@ -162,6 +183,8 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
     assert engine._tail_aware_scheduling_config is config
     assert queues.call_count == (0 if error else 1)
     launch.assert_not_called()
+    if layout.startswith("wan"):
+        read_index.assert_called_once_with("stage-selected-wan", revision="stage-revision")
 
 
 @pytest.mark.parametrize("with_yaml", [False, True], ids=["without-yaml", "with-yaml"])

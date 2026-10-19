@@ -239,5 +239,19 @@ async def test_cancelled_execution_holds_slot_until_terminal_output(runtime, sub
     backend.finish_submit.set()
     backend.outputs.put_nowait(SimpleNamespace(request_id="A", finished=True, aborted=terminal_aborted, error=None))
     pool.poll_diffusion_output(0)
+    assert pool._tail_aware_controller._replicas[0].latency_ema_s == 0.0
     await asyncio.wait_for(waiter, 1)
     assert backend.submitted == ["A", "B"]
+
+
+@pytest.mark.parametrize("model_class", ["WanPipeline", "Wan22Pipeline"])
+async def test_wan_image_input_is_rejected_before_admission(runtime, model_class):
+    orch, pool, (backend,), _ = runtime()
+    pool._tail_aware_model_class = model_class
+    message = _message("image-request")
+    message.prompt = {"prompt": "test", "multi_modal_data": {"image": "unused.png"}}
+    await orch._handle_add_request(message)
+    error = await asyncio.wait_for(orch.output_async_queue.get(), 1)
+    assert error.status_code == 400
+    assert backend.submitted == []
+    assert pool._tail_aware_controller.pending_count == pool._tail_aware_controller.active_count == 0

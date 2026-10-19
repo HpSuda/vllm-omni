@@ -46,15 +46,15 @@ def prepare_tail_aware_stages(
         or execution.engine_backend not in (None, "default")
     ):
         raise ValueError("Tail-aware scheduling requires the default native diffusion engine and pipeline")
+    model_config = stage.model_config
+    model_name = model_config.model if model_config.model is not None else execution.model
+    revision = model_config.revision if model_config.revision is not None else execution.revision
     model_class = execution.model_class_name
     if model_class is None:
         from vllm_omni.diffusion.data import resolve_model_class_name
 
         # Match worker projection: non-None model_config fields override the
         # diffusion projection, then an empty model falls back to the root.
-        model_config = stage.model_config
-        model_name = model_config.model if model_config.model is not None else execution.model
-        revision = model_config.revision if model_config.revision is not None else execution.revision
         model_class = resolve_model_class_name(
             model=model_name or model,
             revision=revision,
@@ -62,5 +62,19 @@ def prepare_tail_aware_stages(
         )
     from vllm_omni.scheduling.estimation import validate_service_time_profile
 
-    validate_service_time_profile(model_class, settings.get("hardware_profile"))
+    validate_service_time_profile(model_class, settings.hardware_profile)
+    if model_class in {"WanPipeline", "Wan22Pipeline"}:
+        from vllm_omni.diffusion.utils.hf_utils import get_diffusion_model_index
+
+        try:
+            index = get_diffusion_model_index(model_name or model, revision=revision)
+        except Exception as exc:
+            raise ValueError("Tail-aware Wan scheduling requires readable standard T2V model metadata") from exc
+        if (
+            not index
+            or index.get("_class_name") not in {"WanPipeline", "Wan22Pipeline"}
+            or index.get("expand_timesteps", False)
+            or any(index.get("image_encoder") or ())
+        ):
+            raise ValueError("Tail-aware Wan scheduling supports standard T2V only, not TI2V, I2V or DMD")
     return model_class

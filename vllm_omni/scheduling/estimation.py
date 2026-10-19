@@ -19,8 +19,8 @@ _QWEN_ANCHORS = {
 }
 # Shared Wan reference estimates for 910B2 and 910B3, not per-SKU calibration.
 _WAN_ANCHORS = {
-    "910B2": {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71},
-    "910B3": {(854, 480, 3, 80): 38.07, (854, 480, 4, 120): 71.34, (1280, 720, 6, 80): 119.71},
+    "910B2": {(848, 480, 3, 81): 38.07, (848, 480, 4, 121): 71.34, (1280, 720, 6, 81): 119.71},
+    "910B3": {(848, 480, 3, 81): 38.07, (848, 480, 4, 121): 71.34, (1280, 720, 6, 81): 119.71},
 }
 
 
@@ -70,16 +70,16 @@ def estimate_service_time_s(sampling_params: Any, model_class_name: str, hardwar
         estimate = anchor_s * width * height * steps / (base_width * base_height * anchor_steps)
     else:
         anchors = _WAN_ANCHORS[hardware_profile]
-        exact = anchors.get((width, height, steps, frames))
-        # The original exact 80/120-frame anchors precede VAE frame rounding.
+        # Match the standard T2V worker's spatial and temporal normalization.
         width, height = width // 16 * 16, height // 16 * 16
         if width == 0 or height == 0:
             raise ValueError("Wan dimensions must be at least 16 pixels")
         normalized_frames = frames if frames % 4 == 1 else frames // 4 * 4 + 1
+        exact = anchors.get((width, height, steps, normalized_frames))
         estimate = (
             exact
             if exact is not None
-            else anchors[(1280, 720, 6, 80)] * width * height * steps * normalized_frames / (1280 * 720 * 6 * 80)
+            else anchors[(1280, 720, 6, 81)] * width * height * steps * normalized_frames / (1280 * 720 * 6 * 81)
         )
     outputs = _positive_int(getattr(sampling_params, "num_outputs_per_prompt", 1), "num_outputs_per_prompt")
     if outputs != 1:

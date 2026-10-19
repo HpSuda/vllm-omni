@@ -1188,6 +1188,10 @@ class StagePool:
     ) -> int:
         controller = self._tail_aware_controller
         assert controller is not None and self._tail_aware_model_class is not None
+        if self._tail_aware_model_class in {"WanPipeline", "Wan22Pipeline"} and isinstance(request, dict):
+            image = (request.get("multi_modal_data") or {}).get("image")
+            if image is not None and (not isinstance(image, list) or image):
+                raise ValueError("Tail-aware Wan scheduling supports T2V requests only; image input is unsupported")
         client = None
         try:
             admission_start = _time.perf_counter()
