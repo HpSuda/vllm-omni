@@ -102,6 +102,47 @@ def test_model_profile_exact_and_scaled_estimates(model_class, profile):
     assert estimate_service_time_s(sampling, model_class, profile) == pytest.approx(expected * 2)
 
 
+@pytest.mark.parametrize("profile", ["910B2", "910B3"])
+def test_off_grid_estimates_follow_nearby_calibration(profile):
+    estimates = [estimate_service_time_s(params(size), "QwenImagePipeline", profile) for size in range(512, 1025, 16)]
+    assert estimates == sorted(estimates)
+    # Between calibrated spatial points, interpolate duration at the same step count.
+    lower = estimate_service_time_s(params(512), "QwenImagePipeline", profile)
+    upper = estimate_service_time_s(params(768), "QwenImagePipeline", profile)
+    fraction = (640**2 - 512**2) / (768**2 - 512**2)
+    assert estimate_service_time_s(params(640), "QwenImagePipeline", profile) == pytest.approx(
+        lower + fraction * (upper - lower)
+    )
+    # Native Wan defaults are closest spatially to the 480p, 81-frame reference.
+    sampling = SimpleNamespace()
+    assert estimate_service_time_s(sampling, "Wan22Pipeline", profile) == pytest.approx(38.07 * 832 * 40 / (848 * 3))
+    assert vars(sampling) == {}
+
+
+@pytest.mark.parametrize(
+    "model_class,profile,preferred,neighbor",
+    [
+        ("QwenImagePipeline", "910B2", params(640), params(512)),
+        ("QwenImagePipeline", "910B2", params(896), params(768)),
+        ("Wan22Pipeline", "910B2", SimpleNamespace(), SimpleNamespace(width=1280, height=720, num_inference_steps=20)),
+        ("Wan22Pipeline", "910B3", SimpleNamespace(), SimpleNamespace(width=1280, height=720, num_inference_steps=20)),
+    ],
+    ids=["qwen-640", "qwen-896", "wan-default-b2", "wan-default-b3"],
+)
+@pytest.mark.asyncio
+async def test_off_grid_estimates_drive_equal_wait_dispatch(monkeypatch, model_class, profile, preferred, neighbor):
+    monkeypatch.setattr(controller_module.time, "perf_counter", lambda: 100.0)
+    async with controller_context([0], hardware_profile=profile) as (policy, waiting):
+        await policy.acquire("running", neighbor, model_class)
+        for name, sampling in (("neighbor", neighbor), ("off-grid", preferred)):
+            waiting[name] = asyncio.create_task(policy.acquire(name, sampling, model_class))
+        await drain()
+        policy.complete("running")
+        await drain()
+        assert waiting["off-grid"].done() and not waiting["neighbor"].done()
+        assert (await waiting["off-grid"]).replica_id == 0
+
+
 @pytest.mark.parametrize("profile,other_profile", [("910B2", "910B3"), ("910B3", "910B2")])
 def test_wan_uses_selected_profile_for_exact_and_scaled_estimates(monkeypatch, profile, other_profile):
     sampling = SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
@@ -144,16 +185,15 @@ async def test_controller_uses_selected_model_profile_for_dispatch(monkeypatch, 
     monkeypatch.setattr(controller_module.time, "perf_counter", lambda: 100.0)
     if model_class == "QwenImagePipeline":
         preferred, other = params(), params(1536, 35)
-        tables = estimation_module._QWEN_ANCHORS
-        changed_anchor = {(512, 512): (20, 200.0)}
+        qwen_tables = estimation_module._QWEN_ANCHORS
+        monkeypatch.setitem(qwen_tables, profile, qwen_tables[profile] | {(512, 512): (20, 200.0)})
     else:
         preferred = SimpleNamespace(width=854, height=480, num_inference_steps=3, num_frames=80)
         other = SimpleNamespace(width=1280, height=720, num_inference_steps=6, num_frames=80)
-        tables = estimation_module._WAN_ANCHORS
-        changed_anchor = {(848, 480, 3, 81): 200.0}
+        wan_tables = estimation_module._WAN_ANCHORS
+        monkeypatch.setitem(wan_tables, profile, wan_tables[profile] | {(848, 480, 3, 81): 200.0})
     # Synthetic data reverses risk order only on the selected model/profile.
     # A default profile/model or an ignored estimate selects "other" instead.
-    monkeypatch.setitem(tables, profile, tables[profile] | changed_anchor)
     estimate = mocker.spy(controller_module, "estimate_service_time_s")
     async with controller_context([0], hardware_profile=profile) as (policy, waiting):
         await policy.acquire("running", other, model_class)

@@ -11,7 +11,11 @@ vllm serve Qwen/Qwen-Image --omni --no-async-chunk \
 Waiting requests are ranked by `waiting_time + beta * estimated_service_time`,
 highest first. `risk_beta` defaults to 0.85; `band_risk_beta` (0.625) applies when
 queue depth is within `band_min_pending`–`band_max_pending` (10–27 inclusive).
-Service estimates use request size, steps and frames. Successful completions
+Service estimates use request size, steps and frames. Qwen interpolates per-step
+cost by pixel area between calibrated sizes and scales the nearest endpoint
+outside that range. Wan scales the nearest spatial reference, breaking ties by
+frame count and steps. These are estimates, not additional calibration results.
+Successful completions
 update a moving average used to choose among idle replicas; failures do not.
 Each replica executes one request at a time. Cancelling queued work releases its
 reservation immediately; submitted work holds its slot until the worker reports

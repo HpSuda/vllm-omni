@@ -127,7 +127,7 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
         ),
     )
     stage.diffusion_config.model_class_name = "WanPipeline" if layout.startswith("wan-") else "QwenImagePipeline"
-    model_index = {"_class_name": "WanPipeline"}
+    model_index: dict[str, object] = {"_class_name": "WanPipeline"}
     if layout == "wan-ti2v":
         model_index["expand_timesteps"] = True
     elif layout == "wan-dmd":
@@ -140,7 +140,7 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
         "vllm_omni.diffusion.utils.hf_utils.get_diffusion_model_index",
         return_value=None if layout == "wan-missing-index" else model_index,
     )
-    execution_overrides = {
+    execution_overrides: dict[str, dict[str, object]] = {
         "wan": {"model_class_name": "WanPipeline"},
         "wan22": {"model_class_name": "Wan22Pipeline"},
         "wan-b2": {"model_class_name": "WanPipeline"},
