@@ -10,9 +10,7 @@ from types import SimpleNamespace
 import pytest
 import zmq
 
-from tests.diffusion.test_stage_diffusion_proc import proc_control_loop as proc_control_loop
 from tests.engine.test_central_scheduling_admission import _message
-from tests.engine.test_central_scheduling_admission import runtime as runtime
 from vllm_omni.diffusion.data import DiffusionRequestAbortedError
 from vllm_omni.diffusion.inline_stage_diffusion_client import InlineStageDiffusionClient
 from vllm_omni.diffusion.stage_diffusion_client import StageDiffusionClient
@@ -21,6 +19,10 @@ from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.metrics.definitions import DIFFUSION_SCHEDULER_WAITING_KEY
 
 pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion, pytest.mark.asyncio]
+pytest_plugins = [
+    "tests.diffusion.test_stage_diffusion_proc",
+    "tests.engine.test_central_scheduling_admission",
+]
 
 
 class AbortingEngine:

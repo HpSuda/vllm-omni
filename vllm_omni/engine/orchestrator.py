@@ -1878,7 +1878,7 @@ class OrchestratorBase:
     # ---- Shared helpers ----
 
     async def _run_central_scheduling_admission(
-        self, request_id: str, req_state: OrchestratorRequestState, prompt: Any, prompt_text: str | None
+        self, request_id: str, req_state: OrchestratorRequestState, prompt: Any, prompt_text: object
     ) -> None:
         """Wait for capacity without blocking new arrivals or abort messages."""
         from vllm_omni.diffusion.sched.dispatch.controller import CentralQueueFullError

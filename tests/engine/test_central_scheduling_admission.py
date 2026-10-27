@@ -23,8 +23,8 @@ class Backend:
     final_output = True
 
     def __init__(self):
-        self.outputs = asyncio.Queue()
-        self.started = asyncio.Queue()
+        self.outputs: asyncio.Queue[object] = asyncio.Queue()
+        self.started: asyncio.Queue[str] = asyncio.Queue()
         self.finish_submit = asyncio.Event()
         self.error = None
         self.submitted = []
@@ -81,7 +81,7 @@ async def runtime():
         config = CentralSchedulingConfig(enabled=True, max_pending_requests=limit)
         pool.configure_central_scheduling(config)
         assert pool._central_scheduler.config is config
-        stage_waiting = {}
+        stage_waiting: dict[int, int] = {}
         orch = Orchestrator(
             request_async_queue=asyncio.Queue(),
             output_async_queue=asyncio.Queue(),

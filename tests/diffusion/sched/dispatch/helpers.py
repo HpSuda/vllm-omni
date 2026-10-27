@@ -7,14 +7,14 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from vllm_omni.diffusion.sched.dispatch.config import CentralSchedulingConfig
-from vllm_omni.diffusion.sched.dispatch.controller import CentralScheduler
+from vllm_omni.diffusion.sched.dispatch.controller import CentralScheduler, Decision
 
 
 @asynccontextmanager
 async def controller_context(replica_ids, **options):
     """Own a controller and the pending tasks started by one test."""
     policy = CentralScheduler(list(replica_ids), CentralSchedulingConfig(enabled=True, **options))
-    pending = {}
+    pending: dict[str, asyncio.Task[Decision]] = {}
     try:
         yield policy, pending
     finally:
