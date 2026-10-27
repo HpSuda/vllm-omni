@@ -11,6 +11,7 @@ respect to each other. Backend execution and transport stay with StagePool.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -18,7 +19,9 @@ from typing import Any
 
 from .config import CentralSchedulingConfig
 from .estimation import estimate_service_time_s
-from .planner import ReleaseCalendarRequest, plan_release_calendar
+from .planner import ReleaseCalendarRequest, plan_release_calendar, select_by_risk
+
+logger = logging.getLogger(__name__)
 
 
 class CentralQueueFullError(ValueError):
@@ -276,7 +279,16 @@ class CentralScheduler:
                     r.replica_id,
                 ),
             )
-            selected = self._select_request(replica.replica_id, now_s)
+            try:
+                selected = self._select_request(replica.replica_id, now_s)
+            except Exception:
+                logger.exception("Central dispatch failed; ending pending admissions")
+                # Do not release slots owned by running backend requests.
+                for request in tuple(self._pending_normals + self._pending_tails):
+                    self._forget(request)
+                    if not request.future.done():
+                        request.future.set_exception(RuntimeError("Central dispatch failed"))
+                return
             self._bind(selected, replica, now_s)
         if self._pending_normals:
             return
@@ -321,21 +333,26 @@ class CentralScheduler:
             replicas.append(replica)
             releases.append(release_s)
         first_index = next(index for index, replica in enumerate(replicas) if replica.replica_id == replica_id)
-        selected_id = plan_release_calendar(
-            pending=[
-                ReleaseCalendarRequest(
-                    request.request_id,
-                    request.sequence,
-                    request.arrival_s,
-                    request.estimated_service_s,
-                )
-                for request in self._pending_normals
-            ],
-            now_s=now_s,
-            release_calendar_s=releases,
-            first_backend_index=first_index,
-            completed_latencies_s=self._completed_latency_history_s,
-            active_projected_latencies_s=active_latencies,
-            config=self.config,
-        )
+        pending = [
+            ReleaseCalendarRequest(
+                request.request_id,
+                request.sequence,
+                request.arrival_s,
+                request.estimated_service_s,
+            )
+            for request in self._pending_normals
+        ]
+        try:
+            selected_id = plan_release_calendar(
+                pending=pending,
+                now_s=now_s,
+                release_calendar_s=releases,
+                first_backend_index=first_index,
+                completed_latencies_s=self._completed_latency_history_s,
+                active_projected_latencies_s=active_latencies,
+                config=self.config,
+            )
+        except Exception:
+            logger.exception("Window planning failed; falling back to risk ordering")
+            selected_id = select_by_risk(pending, dispatch_s=now_s, config=self.config).request_id
         return self._requests[selected_id]

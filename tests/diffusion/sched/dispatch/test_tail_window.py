@@ -105,6 +105,37 @@ async def test_window_changes_immediate_risk_choice(monkeypatch, tail):
         assert policy.active_count == 2 and policy.pending_count == 3
 
 
+@pytest.mark.parametrize("fallback_fails", [False, True])
+async def test_planner_failure_falls_back_or_ends_waiters(monkeypatch, fallback_fails):
+    async with _queued_window(monkeypatch) as (policy, _now, pending):
+        policy.credits = 1
+        pending["tail"] = asyncio.create_task(policy.acquire("tail", 200.0, "QwenImagePipeline"))
+        await drain()
+        assert policy._requests["tail"].deferred
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("injected selection failure")
+
+        with monkeypatch.context() as failures:
+            failures.setattr(controller_module, "plan_release_calendar", fail)
+            if fallback_fails:
+                failures.setattr(controller_module, "select_by_risk", fail, raising=False)
+            policy.complete("blocker-0")
+            await drain()
+            if fallback_fails:
+                assert all(task.done() for task in pending.values())
+                assert all(isinstance(task.exception(), RuntimeError) for task in pending.values())
+                assert policy.pending_count == 0 and policy.active_count == 1
+            else:
+                assert _dispatched(pending) == {"long": 0}
+                assert policy.pending_count == 4 and policy.active_count == 2
+            assert policy._replicas[1].active.request_id == "blocker-1"
+
+        if fallback_fails:
+            # A failed selection must not poison the surviving controller.
+            assert (await policy.acquire("retry", 5.0, "QwenImagePipeline")).replica_id == 0
+
+
 @pytest.mark.parametrize("new_arrival,expected", [(False, "long"), (True, "later-short")])
 async def test_arrivals_replan_after_completion_without_preemption(monkeypatch, new_arrival, expected):
     async with _queued_window(monkeypatch) as (policy, now, pending):

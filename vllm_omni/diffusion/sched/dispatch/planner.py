@@ -63,7 +63,7 @@ def _request_risk(
     return dispatch_s - request.arrival_time_s + beta * request.estimated_service_s
 
 
-def _queue_band_select(
+def select_by_risk(
     requests: Sequence[ReleaseCalendarRequest],
     *,
     dispatch_s: float,
@@ -133,7 +133,7 @@ def _greedy_complete(
     while mutable_remaining:
         backend_index = min(range(len(mutable_slots)), key=lambda index: (mutable_slots[index], index))
         dispatch_s = now_s + mutable_slots[backend_index]
-        selected = _queue_band_select(
+        selected = select_by_risk(
             mutable_remaining,
             dispatch_s=dispatch_s,
             config=config,
@@ -179,11 +179,11 @@ def plan_release_calendar(
         if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value >= 0.0
     ]
     if not config.beam_min_pending <= len(pending) <= config.beam_max_pending:
-        return _queue_band_select(pending, dispatch_s=now_s, config=config).request_id
+        return select_by_risk(pending, dispatch_s=now_s, config=config).request_id
     slots = tuple(release_calendar_s)
 
     initial_projected = (*completed, *active)
-    base = _queue_band_select(
+    base = select_by_risk(
         pending,
         dispatch_s=now_s + slots[first_backend_index],
         config=config,

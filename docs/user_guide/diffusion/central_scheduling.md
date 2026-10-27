@@ -62,7 +62,10 @@ It minimizes Normal-request P95, with mean latency as a tie-breaker, using
 recent completed Normal latencies and projected Normal latencies. Tail requests
 affect replica availability but do not enter this latency objective.
 Arrivals and completions update subsequent choices; outside this range the
-scheduler uses risk ordering. `beam_horizon` (4), `beam_width` (16) and
+scheduler uses risk ordering. Unexpected planning errors also fall back to risk
+ordering. If request selection itself fails, pending admissions end with an
+error; running backend requests keep their slots until termination.
+`beam_horizon` (4), `beam_width` (16) and
 `beam_branch_width` (6) bound the search. Forecast expiry never frees a running
 slot: overdue occupied replicas and their uncertain latency projections are
 excluded from the rollout until released by actual completion, cancellation
