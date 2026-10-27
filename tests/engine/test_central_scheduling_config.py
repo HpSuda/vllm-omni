@@ -3,6 +3,8 @@
 
 """Exercise admission configuration through serve parsing, resolution and startup."""
 
+from contextlib import nullcontext
+
 import pytest
 import yaml
 
@@ -20,23 +22,25 @@ pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
 
 @pytest.fixture
 def admission_settings():
-    return {"enabled": True, "max_pending_requests": 7}
+    return {"enabled": True, "max_pending_requests": 7, "hardware_profile": "910B2"}
 
 
 @pytest.mark.parametrize("generic", [False, True], ids=["registered", "generic"])
 @pytest.mark.parametrize(
-    "yaml_enabled,cli,enabled,limit",
+    "yaml_enabled,cli,enabled,limit,error",
     [
-        (True, [], True, 7),
-        (False, ["--enable-central-scheduling"], True, 7),
-        (True, ["--no-enable-central-scheduling"], False, 7),
-        (True, ["--central-scheduling-config", '{"max_pending_requests":3}'], True, 3),
-        (True, ["--central-scheduling-config", '{"enabled":false}'], False, 7),
+        (True, [], True, 7, None),
+        (False, ["--enable-central-scheduling"], True, 7, None),
+        (True, ["--no-enable-central-scheduling"], False, 7, None),
+        (True, ["--central-scheduling-config", '{"max_pending_requests":3}'], True, 3, None),
+        (True, ["--central-scheduling-config", '{"enabled":false}'], False, 7, None),
+        (True, ["--central-scheduling-config", '{"hardware_profile":null}'], True, 7, "hardware_profile"),
+        (True, ["--central-scheduling-config", '{"hardware_profile":"unknown"}'], True, 7, "hardware_profile"),
     ],
-    ids=["yaml", "cli-enable", "cli-disable", "cli-limit", "cli-json-disable"],
+    ids=["yaml", "cli-enable", "cli-disable", "cli-limit", "cli-json-disable", "missing-profile", "invalid-profile"],
 )
 def test_serve_admission_config_reaches_resolver(
-    tmp_path, mocker, admission_settings, generic, yaml_enabled, cli, enabled, limit
+    tmp_path, mocker, admission_settings, generic, yaml_enabled, cli, enabled, limit, error
 ):
     pipeline = PipelineConfig(
         model_type="admission-test",
@@ -68,28 +72,44 @@ def test_serve_admission_config_reaches_resolver(
     parser = TrackingArgumentParser()
     serve = OmniServeCommand().subparser_init(parser.add_subparsers())
     overrides = serve.parse_args(cli).get_explicit_kwargs_dict()
-    result = resolve_omni_config(
-        "local-test-model",
-        trust_remote_code=False,
-        deploy_config_path=str(deploy),
-        cli_overrides=overrides,
-        stage_overrides=None,
-        strategy_config_path=None,
-    )
-    assert isinstance(result, OmniConfigResolution)
-    config = result.central_scheduling_config
-    assert isinstance(config, CentralSchedulingConfig)
-    assert config.enabled is enabled and config.max_pending_requests == limit
-    assert config is build.spy_return.orchestrator_config.central_scheduling_config
-    validate.assert_called_once()
-    assert result.stage_configs[0].stage_type == "diffusion"
-    assert "central_scheduling_config" not in result.stage_configs[0].diffusion_config.__dict__
+    with pytest.raises(ValueError, match=error) if error else nullcontext():
+        result = resolve_omni_config(
+            "local-test-model",
+            trust_remote_code=False,
+            deploy_config_path=str(deploy),
+            cli_overrides=overrides,
+            stage_overrides=None,
+            strategy_config_path=None,
+        )
+        assert isinstance(result, OmniConfigResolution)
+        config = result.central_scheduling_config
+        assert isinstance(config, CentralSchedulingConfig)
+        assert config.enabled is enabled and config.max_pending_requests == limit
+        assert config.hardware_profile == admission_settings["hardware_profile"]
+        assert config is build.spy_return.orchestrator_config.central_scheduling_config
+        validate.assert_called_once()
+        assert result.stage_configs[0].stage_type == "diffusion"
+        assert "central_scheduling_config" not in result.stage_configs[0].diffusion_config.__dict__
 
 
 @pytest.mark.parametrize(
     "layout,error",
     [
         ("local", None),
+        ("wan", None),
+        ("wan22", None),
+        ("qwen-b3", None),
+        ("wan-b2", None),
+        ("wan22-b2", None),
+        ("wan-ti2v", "standard T2V only"),
+        ("wan-dmd", "standard T2V only"),
+        ("wan-i2v", "standard T2V only"),
+        ("wan-image-encoder", "standard T2V only"),
+        ("wan-missing-index", "standard T2V only"),
+        ("unsupported-model", "not supported for model class"),
+        ("custom-pipeline", "default native diffusion engine"),
+        ("diffusers", "default native diffusion engine"),
+        ("custom-backend", "default native diffusion engine"),
         ("distributed", "one local head"),
         ("multi-client", "one local head"),
         ("multi-stage", "one non-streaming diffusion stage"),
@@ -106,9 +126,39 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
             execution_type=StageExecutionType.DIFFUSION,
         ),
     )
-    stage.diffusion_config.model_class_name = "QwenImagePipeline"
+    stage.diffusion_config.model_class_name = "WanPipeline" if layout.startswith("wan-") else "QwenImagePipeline"
+    model_index = {"_class_name": "WanPipeline"}
+    if layout == "wan-ti2v":
+        model_index["expand_timesteps"] = True
+    elif layout == "wan-dmd":
+        model_index["_class_name"] = "WanDMDPipeline"
+    elif layout == "wan-i2v":
+        model_index["_class_name"] = "WanImageToVideoPipeline"
+    elif layout == "wan-image-encoder":
+        model_index["image_encoder"] = ["transformers", "CLIPVisionModel"]
+    read_index = mocker.patch(
+        "vllm_omni.diffusion.utils.hf_utils.get_diffusion_model_index",
+        return_value=None if layout == "wan-missing-index" else model_index,
+    )
+    execution_overrides = {
+        "wan": {"model_class_name": "WanPipeline"},
+        "wan22": {"model_class_name": "Wan22Pipeline"},
+        "wan-b2": {"model_class_name": "WanPipeline"},
+        "wan22-b2": {"model_class_name": "Wan22Pipeline"},
+        "unsupported-model": {"model_class_name": "FluxPipeline"},
+        "custom-pipeline": {"custom_pipeline_args": {"pipeline_class": "custom.Pipeline"}},
+        "diffusers": {"diffusion_load_format": "diffusers"},
+        "custom-backend": {"engine_backend": "custom"},
+    }
+    for key, value in execution_overrides.get(layout, {}).items():
+        setattr(stage.diffusion_config, key, value)
+    if layout.startswith("wan"):
+        stage.model_config.model = "stage-selected-wan"
+        stage.model_config.revision = "stage-revision"
     stage.connector_config.async_chunk = layout == "async-chunk"
     stage.diffusion_config.streaming_output = layout == "streaming"
+    if layout in {"wan", "wan22", "qwen-b3"}:
+        admission_settings["hardware_profile"] = "910B3"
     stages = (stage, stage) if layout == "multi-stage" else (stage,)
     config = CentralSchedulingConfig.from_dict(admission_settings)
     resolution = OmniConfigResolution(None, stages, central_scheduling_config=config)
@@ -133,6 +183,8 @@ def test_admission_gates_run_before_engine_launch(mocker, admission_settings, la
     assert engine._central_scheduling_config is config
     assert queues.call_count == (0 if error else 1)
     launch.assert_not_called()
+    if layout.startswith("wan"):
+        read_index.assert_called_once_with("stage-selected-wan", revision="stage-revision")
 
 
 @pytest.mark.parametrize("with_yaml", [False, True], ids=["without-yaml", "with-yaml"])

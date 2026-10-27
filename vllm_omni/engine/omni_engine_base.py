@@ -127,7 +127,7 @@ class OmniEngineBase:
     _client_config: OmniClientConfig | None = None
     _output_sink: OutputQueueSink | None = None
     _central_scheduling_config: CentralSchedulingConfig = CentralSchedulingConfig()
-    _central_scheduling_enabled: bool = False
+    _central_scheduling_model_class: str | None = None
 
     def __init__(
         self,
@@ -294,9 +294,10 @@ class OmniEngineBase:
         )
         from vllm_omni.engine.central_scheduling_runtime import prepare_central_scheduling_stages
 
-        self._central_scheduling_enabled = prepare_central_scheduling_stages(
+        self._central_scheduling_model_class = prepare_central_scheduling_stages(
             self.stage_configs,
             self._central_scheduling_config,
+            model=self.model,
             distributed=self.single_stage_mode or self._omni_master_address is not None,
             async_chunk=self.async_chunk,
             session_mode=getattr(self.deploy_config, "session_mode", "turn"),
@@ -426,9 +427,10 @@ class OmniEngineBase:
 
         self.num_stages = len(self.stage_configs)
         self.stage_pools = self._runtime.stage_pools
-        if self._central_scheduling_enabled:
+        if self._central_scheduling_model_class is not None:
             self.stage_pools[0].configure_central_scheduling(
                 self._central_scheduling_config,
+                model_class_name=self._central_scheduling_model_class,
             )
         self.stage_clients = [
             cast(StageClient, pool.stage_client) for pool in self.stage_pools if pool.stage_client is not None

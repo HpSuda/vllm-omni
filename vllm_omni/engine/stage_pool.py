@@ -180,6 +180,7 @@ class StagePool:
         self._central_scheduling_submitted: set[str] = set()
         self.admission_waiting_count = 0
         self.on_admission_waiting_changed: Callable[[], None] | None = None
+        self._central_scheduling_model_class: str | None = None
 
     @property
     def central_scheduling_enabled(self) -> bool:
@@ -192,7 +193,7 @@ class StagePool:
         # Admission tasks include requests already submitting to a replica.
         return self._central_scheduler.config.max_pending_requests + len(self.available_replica_ids())
 
-    def configure_central_scheduling(self, config: CentralSchedulingConfig) -> None:
+    def configure_central_scheduling(self, config: CentralSchedulingConfig, *, model_class_name: str) -> None:
         """Attach one admission controller to an already validated local pool."""
         from vllm_omni.diffusion.sched.dispatch.controller import CentralScheduler
 
@@ -200,6 +201,7 @@ class StagePool:
             raise ValueError("Central scheduling requires a local diffusion pool")
         if not config.enabled:
             return
+        self._central_scheduling_model_class = model_class_name
         self._central_scheduler = CentralScheduler(self.available_replica_ids(), config)
 
     def close_central_scheduling(self) -> None:
@@ -1185,7 +1187,11 @@ class StagePool:
         submit_kwargs: dict[str, Any],
     ) -> int:
         controller = self._central_scheduler
-        assert controller is not None
+        assert controller is not None and self._central_scheduling_model_class is not None
+        if self._central_scheduling_model_class in {"WanPipeline", "Wan22Pipeline"} and isinstance(request, dict):
+            image = (request.get("multi_modal_data") or {}).get("image")
+            if image is not None and (not isinstance(image, list) or image):
+                raise ValueError("Central Wan scheduling supports T2V requests only; image input is unsupported")
         client = None
         try:
             admission_start = _time.perf_counter()
@@ -1193,7 +1199,9 @@ class StagePool:
             if self.on_admission_waiting_changed is not None:
                 self.on_admission_waiting_changed()
             try:
-                decision = await controller.acquire(request_id)
+                decision = await controller.acquire(
+                    request_id, params, model_class_name=self._central_scheduling_model_class
+                )
             finally:
                 self.admission_waiting_count -= 1
                 if self.on_admission_waiting_changed is not None:
@@ -1431,7 +1439,11 @@ class StagePool:
         output = cast(StagePoolDiffusionClient, raw_client).get_diffusion_output_nowait()
         if output is not None and self._central_scheduler is not None and output.finished:
             self._central_scheduling_submitted.discard(output.request_id)
-            self._central_scheduler.complete(output.request_id)
+            self._central_scheduler.complete(
+                output.request_id,
+                success=output.request_id in self._request_bindings
+                and not (output.error or getattr(output, "aborted", False)),
+            )
         return output
 
     # ---- Stage-local control plane ----

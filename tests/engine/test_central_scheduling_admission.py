@@ -78,8 +78,8 @@ async def runtime():
     def create(replicas=1, limit=1):
         clients = [Backend() for _ in range(replicas)]
         pool = StagePool(0, clients)
-        config = CentralSchedulingConfig(enabled=True, max_pending_requests=limit)
-        pool.configure_central_scheduling(config)
+        config = CentralSchedulingConfig(enabled=True, max_pending_requests=limit, hardware_profile="910B2")
+        pool.configure_central_scheduling(config, model_class_name="QwenImagePipeline")
         assert pool._central_scheduler.config is config
         stage_waiting: dict[int, int] = {}
         orch = Orchestrator(
@@ -239,5 +239,19 @@ async def test_cancelled_execution_holds_slot_until_terminal_output(runtime, sub
     backend.finish_submit.set()
     backend.outputs.put_nowait(SimpleNamespace(request_id="A", finished=True, aborted=terminal_aborted, error=None))
     pool.poll_diffusion_output(0)
+    assert pool._central_scheduler._replicas[0].latency_ema_s == 0.0
     await asyncio.wait_for(waiter, 1)
     assert backend.submitted == ["A", "B"]
+
+
+@pytest.mark.parametrize("model_class", ["WanPipeline", "Wan22Pipeline"])
+async def test_wan_image_input_is_rejected_before_admission(runtime, model_class):
+    orch, pool, (backend,), _ = runtime()
+    pool._central_scheduling_model_class = model_class
+    message = _message("image-request")
+    message.prompt = {"prompt": "test", "multi_modal_data": {"image": "unused.png"}}
+    await orch._handle_add_request(message)
+    error = await asyncio.wait_for(orch.output_async_queue.get(), 1)
+    assert error.status_code == 400
+    assert backend.submitted == []
+    assert pool._central_scheduler.pending_count == pool._central_scheduler.active_count == 0

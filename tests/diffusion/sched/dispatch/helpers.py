@@ -13,6 +13,7 @@ from vllm_omni.diffusion.sched.dispatch.controller import CentralScheduler, Deci
 @asynccontextmanager
 async def controller_context(replica_ids, **options):
     """Own a controller and the pending tasks started by one test."""
+    options.setdefault("hardware_profile", "910B2")
     policy = CentralScheduler(list(replica_ids), CentralSchedulingConfig(enabled=True, **options))
     pending: dict[str, asyncio.Task[Decision]] = {}
     try:
