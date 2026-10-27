@@ -1161,19 +1161,20 @@ class OrchestratorBase:
             await self._finish_raw_terminal_requests(pending_stage, pending_replica, terminal)
 
     def _absorb_diffusion_metrics(self, stage_id: int, replica_id: int, diffusion_output: Any) -> bool:
-        """Drain a diffusion output's piggybacked metrics.
+        """Drain metrics and identify outputs that must not be routed.
 
-        Returns ``True`` when the output carried nothing but metrics and must
-        not be routed. Shared by both orchestration loops: the event-driven
-        poller would otherwise hand a metrics-only sentinel to
-        ``_handle_processed_outputs`` as if it were a real request output.
+        Both orchestration loops consume metrics-only frames and terminal
+        cancellation acknowledgements after StagePool has processed their
+        lifecycle state.
         """
         output_metrics = getattr(diffusion_output, "metrics", None)
         if isinstance(output_metrics, dict):
             n_waiting = output_metrics.pop(metric_defs.DIFFUSION_SCHEDULER_WAITING_KEY, None)
             if n_waiting is not None:
                 self._update_stage_replica_waiting(stage_id, replica_id, int(n_waiting))
-        return diffusion_output.request_id == DIFFUSION_METRICS_ONLY_REQUEST_ID
+        return diffusion_output.request_id == DIFFUSION_METRICS_ONLY_REQUEST_ID or bool(
+            getattr(diffusion_output, "aborted", False)
+        )
 
     async def _orchestration_loop(self) -> None:
         """Poll stage pools and route logical outputs."""
