@@ -8,7 +8,7 @@ vllm serve Qwen/Qwen-Image --omni --no-async-chunk \
   --central-scheduling-config '{"hardware_profile":"910B2"}'
 ```
 
-Waiting requests are ranked by `waiting_time + beta * estimated_service_time`,
+Waiting Normal requests are ranked by `waiting_time + beta * estimated_service_time`,
 highest first. `risk_beta` defaults to 0.85; `band_risk_beta` (0.625) applies when
 queue depth is within `band_min_pending`–`band_max_pending` (10–27 inclusive).
 Service estimates use request size, steps and frames. Qwen interpolates per-step
@@ -48,3 +48,23 @@ Wan support is limited to standard T2V: TI2V, DMD and I2V model variants are
 rejected before stage launch, and image-conditioned Wan requests are rejected
 before admission. Other hardware or model geometries require new calibration
 and device validation.
+
+The head classifies requests into Normal and Tail queues. Every `quota_every`
+arrivals (20) grant `quota_amount` Tail credits (1). Classification also requires
+service time at least `threshold_ratio` (0.8) times the observed maximum and
+`long_request_ratio` (1.5) times the observed minimum. Normal requests have
+priority; waiting Tail requests concentrate on selected replicas, then backfill
+idle slots newest-first. Sustained Normal arrivals can delay waiting Tail work.
+
+Within `beam_min_pending`–`beam_max_pending` (10–27), the planner uses pending
+Normal requests and estimated replica release times to choose the next request.
+It minimizes Normal-request P95, with mean latency as a tie-breaker, using
+recent completed Normal latencies and projected Normal latencies. Tail requests
+affect replica availability but do not enter this latency objective.
+Arrivals and completions update subsequent choices; outside this range the
+scheduler uses risk ordering. `beam_horizon` (4), `beam_width` (16) and
+`beam_branch_width` (6) bound the search. Forecast expiry never frees a running
+slot: overdue occupied replicas and their uncertain latency projections are
+excluded from the rollout until released by actual completion, cancellation
+or failure. No step execution
+or preemption is required.
